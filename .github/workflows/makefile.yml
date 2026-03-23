@@ -3,11 +3,11 @@ name: Build
 on:
   push:
     paths:
-      - ".github/workflows/build.yml"
+      - ".github/workflows/makefile.yml"
       - "idp-server/**"
   pull_request:
     paths:
-      - ".github/workflows/build.yml"
+      - ".github/workflows/makefile.yml"
       - "idp-server/**"
   workflow_dispatch:
 
