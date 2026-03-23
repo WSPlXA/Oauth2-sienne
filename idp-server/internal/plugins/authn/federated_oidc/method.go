@@ -1,0 +1,64 @@
+package federated_oidc
+
+import (
+	"context"
+
+	"idp-server/internal/ports/federation"
+	pluginport "idp-server/internal/ports/plugin"
+)
+
+type Method struct {
+	name      string
+	connector federation.OIDCConnector
+}
+
+func NewMethod(connector federation.OIDCConnector) *Method {
+	return &Method{
+		name:      "federated_oidc",
+		connector: connector,
+	}
+}
+
+func (m *Method) Name() string {
+	return m.name
+}
+
+func (m *Method) Type() pluginport.AuthnMethodType {
+	return pluginport.AuthnMethodTypeFederatedOIDC
+}
+
+func (m *Method) Authenticate(ctx context.Context, input pluginport.AuthenticateInput) (*pluginport.AuthenticateResult, error) {
+	if m.connector == nil {
+		return &pluginport.AuthenticateResult{
+			Handled:       false,
+			Authenticated: false,
+		}, nil
+	}
+
+	result, err := m.connector.Authenticate(ctx, federation.OIDCAuthenticateInput{
+		RedirectURI: input.RedirectURI,
+		State:       input.State,
+		Code:        input.Code,
+		Nonce:       input.Nonce,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return &pluginport.AuthenticateResult{
+			Handled:       false,
+			Authenticated: false,
+		}, nil
+	}
+
+	return &pluginport.AuthenticateResult{
+		Handled:          true,
+		Authenticated:    result.Authenticated,
+		Subject:          result.Subject,
+		IdentityProvider: m.name,
+		Username:         result.Username,
+		DisplayName:      result.DisplayName,
+		Email:            result.Email,
+		RedirectURI:      result.RedirectURI,
+	}, nil
+}

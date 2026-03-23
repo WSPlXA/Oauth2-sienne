@@ -1,0 +1,67 @@
+package redis
+
+import "fmt"
+
+type KeyBuilder struct {
+	Prefix string
+	Env    string
+}
+
+func NewKeyBuilder(prefix, env string) *KeyBuilder {
+	return &KeyBuilder{
+		Prefix: prefix,
+		Env:    env,
+	}
+}
+
+func (k *KeyBuilder) Session(sessionID string) string {
+	return fmt.Sprintf("%s:%s:session:sid:%s", k.Prefix, k.Env, sessionID)
+}
+
+func (k *KeyBuilder) UserSessionIndex(userID string) string {
+	return fmt.Sprintf("%s:%s:session:user:%s", k.Prefix, k.Env, userID)
+}
+
+func (k *KeyBuilder) AuthCode(code string) string {
+	return fmt.Sprintf("%s:%s:authcode:code:%s", k.Prefix, k.Env, code)
+}
+
+func (k *KeyBuilder) AuthCodeConsumed(code string) string {
+	return fmt.Sprintf("%s:%s:authcode:consumed:%s", k.Prefix, k.Env, code)
+}
+
+func (k *KeyBuilder) OAuthState(state string) string {
+	return fmt.Sprintf("%s:%s:oauthstate:%s", k.Prefix, k.Env, state)
+}
+
+func (k *KeyBuilder) Nonce(nonce string) string {
+	return fmt.Sprintf("%s:%s:nonce:%s", k.Prefix, k.Env, nonce)
+}
+
+func (k *KeyBuilder) AccessToken(tokenSHA256 string) string {
+	return fmt.Sprintf("%s:%s:token:access:sha256:%s", k.Prefix, k.Env, tokenSHA256)
+}
+
+func (k *KeyBuilder) RefreshToken(tokenSHA256 string) string {
+	return fmt.Sprintf("%s:%s:token:refresh:sha256:%s", k.Prefix, k.Env, tokenSHA256)
+}
+
+func (k *KeyBuilder) RevokedAccessToken(tokenSHA256 string) string {
+	return fmt.Sprintf("%s:%s:revoked:access:%s", k.Prefix, k.Env, tokenSHA256)
+}
+
+func (k *KeyBuilder) RevokedRefreshToken(tokenSHA256 string) string {
+	return fmt.Sprintf("%s:%s:revoked:refresh:%s", k.Prefix, k.Env, tokenSHA256)
+}
+
+func (k *KeyBuilder) LoginFailUser(username string) string {
+	return fmt.Sprintf("%s:%s:loginfail:user:%s", k.Prefix, k.Env, username)
+}
+
+func (k *KeyBuilder) LoginFailIP(ip string) string {
+	return fmt.Sprintf("%s:%s:loginfail:ip:%s", k.Prefix, k.Env, ip)
+}
+
+func (k *KeyBuilder) UserLock(userID string) string {
+	return fmt.Sprintf("%s:%s:lock:user:%s", k.Prefix, k.Env, userID)
+}
