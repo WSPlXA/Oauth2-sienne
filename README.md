@@ -101,6 +101,82 @@ make migrate-docker
   - `REDIS_HOST`
   - `REDIS_PORT` 可选，默认 `6379`
 
+### Redis 在项目里的作用
+
+Redis 在这个项目里不是“可有可无的普通缓存”，而是 OAuth2 / OIDC 流程里的高速状态层，主要存放带 TTL、需要快速判断、适合原子更新的数据。
+
+当前已经接入主流程的用途包括：
+
+- 登录 session cache：登录成功后会把 session 写入 Redis，同时维护用户到 session 的索引，便于快速校验、查找和删除登录态
+- token cache：缓存 access token / refresh token 的摘要、过期时间、撤销标记和 refresh rotation 状态
+- token revoke / refresh rotation：用 Redis Lua 脚本做原子撤销和 refresh token 轮换，避免并发下状态不一致
+
+仓库里已经实现、但目前还没有完全接入主流程的能力包括：
+
+- authorization code 一次性消费缓存
+- OAuth `state` / OIDC `nonce` 防重放
+- 登录失败计数与临时锁定
+
+可以把它理解成：
+
+- MySQL 更像持久化真相源，存业务主数据
+- Redis 更像安全流程里的临时状态层，负责高频读写、短期状态和原子控制
+
+### MySQL / Redis 请求流转图
+
+下面这张图把当前实现里登录、授权码、token 刷新三条链路串起来了。可以先抓住一个大方向：
+
+- 登录态和 token 临时状态主要借助 Redis 提速与做原子控制
+- 用户、client、authorization code、refresh token 的持久化真相仍然主要在 MySQL
+
+```mermaid
+flowchart TD
+    A[Browser / Client] --> B[POST /login]
+    B --> C[authn service]
+    C --> D[MySQL users]
+    D --> C
+    C --> E[MySQL login_sessions]
+    C --> F[Redis session cache]
+    F --> G[idp_session cookie returned]
+
+    G --> H[GET /oauth2/authorize]
+    H --> I[authz service]
+    I --> J[MySQL oauth_clients]
+    I --> K[MySQL login_sessions]
+    I --> L[MySQL consents]
+    I --> M[MySQL authorization_codes]
+    M --> N[302 redirect with code]
+
+    N --> O[POST /oauth2/token grant_type=authorization_code]
+    O --> P[token service]
+    P --> J
+    P --> M
+    P --> D
+    P --> Q[MySQL access_tokens]
+    P --> R[MySQL refresh_tokens]
+    P --> S[Redis access token cache]
+    P --> T[Redis refresh token cache]
+
+    T --> U[POST /oauth2/token grant_type=refresh_token]
+    U --> V[token service]
+    V --> J
+    V --> R
+    V --> D
+    V --> Q
+    V --> W[MySQL refresh token rotation]
+    V --> X[Redis rotate_token.lua]
+    X --> Y[new refresh token cache + old revoke marker]
+```
+
+结合当前代码，三条链路的分工大致是：
+
+- 登录：先查 MySQL 用户与密码，成功后把 session 同时写入 MySQL 和 Redis
+- 授权码：`/oauth2/authorize` 当前主要查 MySQL 里的 client、session、consent，并把 authorization code 持久化到 MySQL
+- 用 code 换 token：先消费 MySQL 中的 authorization code，再签发 token；access token / refresh token 会同时写 MySQL 和 Redis
+- 刷新 token：旧 refresh token 的有效性与轮换结果以 MySQL 为准，Redis 用来缓存新 token 状态并通过 Lua 脚本原子写入撤销标记
+
+当前仓库里也已经有 authorization code cache、`state` / `nonce` 防重放、登录失败计数这些 Redis 组件，但还没有全部接进主流程，所以图里按“当前实际主链路”画成了 MySQL 主导。
+
 ### 其他可选配置
 
 - `REDIS_PASSWORD`
