@@ -15,7 +15,7 @@ API端点有如下设置
 - `GET /oauth2/jwks`
 - Redis Lua 脚本预热与执行
 
-`/oauth2/authorize` 现在已经不是占位逻辑了。它会真实做这些事情：
+`/oauth2/authorize` 有如下设置：
 
 - 校验 `response_type=code`
 - 校验 client 是否存在、是否激活、是否允许 `authorization_code`
@@ -25,7 +25,7 @@ API端点有如下设置
 - 校验 `idp_session` 对应的登录 session 是否有效
 - 在满足条件时签发新的 authorization code 并重定向回 client
 
-`/consent` 现在也已经接上了可直接浏览器使用的 HTML 页面，同时保留 JSON 便于联调：
+`/consent` 有如下动作：
 
 - 当 client 要求 consent 且当前 scope 还没被授权时，`/oauth2/authorize` 会跳到 `/consent?return_to=...`
 - `GET /consent` 会返回一个 HTML consent 页面
@@ -177,7 +177,7 @@ curl http://localhost:8080/healthz
 
 ### 1. 注册
 
-现在已经支持完整注册接口：
+支持完整注册接口：
 
 - 校验用户名格式
 - 校验邮箱格式
