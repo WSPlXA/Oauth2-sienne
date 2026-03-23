@@ -1,0 +1,762 @@
+openapi: 3.0.3
+info:
+  title: IDP Server API
+  version: 0.1.0
+  description: |
+    OpenAPI contract for the current Go IdP / OAuth2 / OIDC server.
+    This document reflects the implemented HTTP endpoints, including login,
+    registration, OAuth2 authorization code flow, consent, token exchange,
+    userinfo, discovery, and JWKS.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: system
+  - name: authn
+  - name: authz
+  - name: oidc
+
+paths:
+  /healthz:
+    get:
+      tags: [system]
+      summary: Health check
+      operationId: healthz
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /.well-known/openid-configuration:
+    get:
+      tags: [oidc]
+      summary: OIDC discovery document
+      operationId: openidConfiguration
+      responses:
+        '200':
+          description: OIDC discovery metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoveryDocument'
+        '500':
+          description: Discovery generation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /register:
+    get:
+      tags: [authn]
+      summary: Registration endpoint description
+      operationId: getRegisterInfo
+      responses:
+        '200':
+          description: Registration usage hint
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterInfoResponse'
+    post:
+      tags: [authn]
+      summary: Register a new user
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          description: Invalid registration request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Username or email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Registration failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /login:
+    get:
+      tags: [authn]
+      summary: Login endpoint description
+      operationId: getLoginInfo
+      parameters:
+        - name: return_to
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Login usage hint
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginInfoResponse'
+    post:
+      tags: [authn]
+      summary: Login with username and password
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Sets the `idp_session` cookie
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '302':
+          description: Login successful and redirected to `return_to`
+          headers:
+            Location:
+              schema:
+                type: string
+            Set-Cookie:
+              schema:
+                type: string
+        '400':
+          description: Invalid login request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: User disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '423':
+          description: User locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Login failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /consent:
+    get:
+      tags: [authz]
+      summary: Render or inspect consent request
+      operationId: getConsent
+      parameters:
+        - name: return_to
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Consent page or JSON consent summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentInfoResponse'
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect to login if user session is missing
+          headers:
+            Location:
+              schema:
+                type: string
+        '400':
+          description: Invalid consent request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentErrorResponse'
+        '500':
+          description: Consent preparation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [authz]
+      summary: Accept or deny consent
+      operationId: submitConsent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsentDecisionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ConsentDecisionRequest'
+      responses:
+        '302':
+          description: Redirect back into authorize flow or client callback
+          headers:
+            Location:
+              schema:
+                type: string
+        '400':
+          description: Invalid consent action or request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentErrorResponse'
+        '500':
+          description: Consent processing failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /oauth2/authorize:
+    get:
+      tags: [authz]
+      summary: OAuth2 authorization endpoint
+      description: |
+        Starts the authorization code flow. On success it redirects to the
+        client redirect URI with `code` and optional `state`. If login or
+        consent is required, it redirects to `/login` or `/consent`.
+      operationId: authorize
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            example: code
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: web-client
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            example: openid profile email
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: nonce
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: code_challenge
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: code_challenge_method
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [plain, S256]
+      responses:
+        '302':
+          description: Redirect to client callback, login page, or consent page
+          headers:
+            Location:
+              schema:
+                type: string
+        '400':
+          description: Invalid authorization request when redirect cannot be built
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /oauth2/token:
+    post:
+      tags: [authz]
+      summary: Exchange authorization code or refresh token
+      operationId: token
+      security:
+        - basicAuth: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '200':
+          description: Token response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Invalid token request or invalid grant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        '401':
+          description: Invalid client authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        '500':
+          description: Token issuance failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+
+  /oauth2/userinfo:
+    get:
+      tags: [oidc]
+      summary: OIDC userinfo endpoint
+      operationId: userInfo
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+        '401':
+          description: Missing or invalid access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subject not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Userinfo lookup failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /oauth2/jwks:
+    get:
+      tags: [oidc]
+      summary: JSON Web Key Set
+      operationId: jwks
+      responses:
+        '200':
+          description: Public signing keys
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWKS'
+        '500':
+          description: JWKS generation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: invalid request
+
+    ConsentErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        return_to:
+          type: string
+
+    OAuthError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: invalid_grant
+        error_description:
+          type: string
+
+    RegisterInfoResponse:
+      type: object
+      required: [endpoint, message]
+      properties:
+        endpoint:
+          type: string
+          example: register
+        message:
+          type: string
+          example: submit username, email, display_name and password to register
+
+    RegisterRequest:
+      type: object
+      required: [username, email, display_name, password]
+      properties:
+        username:
+          type: string
+          example: alice
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+        display_name:
+          type: string
+          example: Alice
+        password:
+          type: string
+          format: password
+          example: alice123
+        email_verified:
+          type: boolean
+          default: false
+
+    RegisterResponse:
+      type: object
+      required:
+        - user_id
+        - user_uuid
+        - username
+        - email
+        - email_verified
+        - display_name
+        - status
+        - created_at
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        user_uuid:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        email_verified:
+          type: boolean
+        display_name:
+          type: string
+        status:
+          type: string
+          example: active
+        created_at:
+          type: string
+          format: date-time
+
+    LoginInfoResponse:
+      type: object
+      required: [endpoint, message, return_to]
+      properties:
+        endpoint:
+          type: string
+          example: login
+        message:
+          type: string
+          example: submit username and password to login
+        return_to:
+          type: string
+          nullable: true
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+        return_to:
+          type: string
+
+    LoginResponse:
+      type: object
+      required: [session_id, user_id, subject, expires_at]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        user_id:
+          type: integer
+          format: int64
+        subject:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+
+    ConsentInfoResponse:
+      type: object
+      required: [endpoint, client_id, client_name, scopes, return_to, message]
+      properties:
+        endpoint:
+          type: string
+          example: consent
+        client_id:
+          type: string
+        client_name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        return_to:
+          type: string
+        message:
+          type: string
+          example: submit action=accept or action=deny
+
+    ConsentDecisionRequest:
+      type: object
+      required: [action, return_to]
+      properties:
+        action:
+          type: string
+          enum: [accept, deny]
+        return_to:
+          type: string
+
+    TokenRequest:
+      type: object
+      required: [grant_type]
+      properties:
+        grant_type:
+          type: string
+          enum:
+            - authorization_code
+            - refresh_token
+            - client_credentials
+        code:
+          type: string
+        redirect_uri:
+          type: string
+          format: uri
+        refresh_token:
+          type: string
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        code_verifier:
+          type: string
+        scope:
+          type: string
+
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          format: int64
+          example: 3600
+        scope:
+          type: string
+          example: openid profile email
+        refresh_token:
+          type: string
+        id_token:
+          type: string
+          description: Returned when the request includes the `openid` scope
+
+    UserInfoResponse:
+      type: object
+      required: [sub]
+      properties:
+        sub:
+          type: string
+          format: uuid
+        name:
+          type: string
+        preferred_username:
+          type: string
+        email:
+          type: string
+          format: email
+        email_verified:
+          type: boolean
+
+    DiscoveryDocument:
+      type: object
+      required:
+        - issuer
+        - authorization_endpoint
+        - token_endpoint
+        - userinfo_endpoint
+        - jwks_uri
+        - response_types_supported
+        - subject_types_supported
+        - id_token_signing_alg_values_supported
+        - scopes_supported
+        - token_endpoint_auth_methods_supported
+        - grant_types_supported
+        - code_challenge_methods_supported
+      properties:
+        issuer:
+          type: string
+          format: uri
+        authorization_endpoint:
+          type: string
+          format: uri
+        token_endpoint:
+          type: string
+          format: uri
+        userinfo_endpoint:
+          type: string
+          format: uri
+        jwks_uri:
+          type: string
+          format: uri
+        response_types_supported:
+          type: array
+          items:
+            type: string
+        subject_types_supported:
+          type: array
+          items:
+            type: string
+        id_token_signing_alg_values_supported:
+          type: array
+          items:
+            type: string
+        scopes_supported:
+          type: array
+          items:
+            type: string
+        token_endpoint_auth_methods_supported:
+          type: array
+          items:
+            type: string
+        grant_types_supported:
+          type: array
+          items:
+            type: string
+        code_challenge_methods_supported:
+          type: array
+          items:
+            type: string
+
+    JWKS:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/JWK'
+
+    JWK:
+      type: object
+      required: [kty, kid]
+      properties:
+        kty:
+          type: string
+          example: RSA
+        kid:
+          type: string
+        use:
+          type: string
+          example: sig
+        alg:
+          type: string
+          example: RS256
+        n:
+          type: string
+        e:
+          type: string
