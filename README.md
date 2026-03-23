@@ -1,8 +1,6 @@
 # idp-server
 
-一个正在推进中的 Go IdP / OAuth2 / OIDC 服务。
-
-当前这版已经可以真实启动，并跑通下面这些链路：
+API端点有如下设置
 
 - `POST /register`
 - `POST /login`
