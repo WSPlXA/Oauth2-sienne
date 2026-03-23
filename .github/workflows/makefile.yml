@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  go-build:
+  test:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -38,15 +38,100 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+
+  build-binaries:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            output: bin/idp-server
+            artifact_name: idp-server-linux-amd64
+          - goos: windows
+            goarch: amd64
+            output: bin/idp-server.exe
+            artifact_name: idp-server-windows-amd64
+
+    defaults:
+      run:
+        working-directory: idp-server
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: idp-server/go.mod
+          cache-dependency-path: idp-server/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
       - name: Build binary
-        run: go build -o bin/idp-server ./cmd/idp
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p bin
+          go build -o ${{ matrix.output }} ./cmd/idp
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: idp-server-linux-amd64
-          path: idp-server/bin/idp-server
+          name: ${{ matrix.artifact_name }}
+          path: idp-server/${{ matrix.output }}
           if-no-files-found: error
 
-      - name: Build Docker image
-        run: docker build -f dockerfile.server -t idp-server:ci .
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare image name
+        id: image
+        run: |
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${repo_name,,}-idp-server" >> "$GITHUB_OUTPUT"
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request' && (github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/'))
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and optionally push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./idp-server
+          file: ./idp-server/dockerfile.server
+          push: ${{ github.event_name != 'pull_request' && (github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/')) }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
