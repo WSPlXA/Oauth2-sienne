@@ -53,9 +53,6 @@ func (m *Method) Authenticate(ctx context.Context, input pluginport.Authenticate
 	}
 
 	if err := m.passwords.VerifyPassword(input.Password, user.PasswordHash); err != nil {
-		if _, incErr := m.users.IncrementFailedLogin(ctx, user.ID); incErr != nil {
-			return nil, incErr
-		}
 		return nil, appauthn.ErrInvalidCredentials
 	}
 
