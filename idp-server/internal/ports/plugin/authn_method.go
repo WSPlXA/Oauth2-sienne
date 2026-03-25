@@ -13,20 +13,21 @@ type AuthenticateInput struct {
 	Username    string
 	Password    string
 	RedirectURI string
+	ReturnTo    string
 	State       string
 	Code        string
 	Nonce       string
 }
 
 type AuthenticateResult struct {
-	Handled         bool
-	Authenticated   bool
-	Subject         string
+	Handled          bool
+	Authenticated    bool
+	Subject          string
 	IdentityProvider string
-	Username        string
-	DisplayName     string
-	Email           string
-	RedirectURI     string
+	Username         string
+	DisplayName      string
+	Email            string
+	RedirectURI      string
 }
 
 type AuthnMethod interface {

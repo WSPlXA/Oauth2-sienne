@@ -177,7 +177,7 @@ func (s *Service) normalizeClientSettings(input CreateClientInput) (string, stri
 	}
 
 	switch authMethod {
-	case "client_secret_basic", "none":
+	case "client_secret_basic", "client_secret_post", "none":
 	default:
 		return "", "", false, false, ErrInvalidAuthMethod
 	}

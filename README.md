@@ -1,46 +1,49 @@
 # idp-server
 
-API端点有如下设置
+Go で実装した IDP / OAuth2 / OIDC サーバーです。  
+現在のリポジトリでは、ログイン、認可コードフロー、リフレッシュトークンのローテーション、`userinfo`、OIDC Discovery、JWKS、Redis Lua スクリプトのプリロードまでを一通り試せます。
+
+## 提供中の API
 
 - `POST /register`
 - `POST /login`
 - `POST /logout`
 - `GET /oauth2/authorize`
-- `POST /oauth2/token` 的 `authorization_code`
-- `POST /oauth2/token` 的 `refresh_token`
-- `POST /oauth2/token` 的 `client_credentials`
+- `POST /oauth2/token` の `authorization_code`
+- `POST /oauth2/token` の `refresh_token`
+- `POST /oauth2/token` の `client_credentials`
 - `POST /oauth2/clients`
 - `POST /oauth2/clients/:client_id/redirect-uris`
 - `GET /oauth2/userinfo`
 - `GET /.well-known/openid-configuration`
 - `GET /oauth2/jwks`
-- Redis Lua 脚本预热与执行
+- Redis Lua スクリプトのプリロードと実行
 
-`/oauth2/authorize` 有如下设置：
+`/oauth2/authorize` では以下を検証します。
 
-- 校验 `response_type=code`
-- 校验 client 是否存在、是否激活、是否允许 `authorization_code`
-- 校验 `redirect_uri`
-- 校验请求 scope 是否在 client 允许范围内
-- 校验 PKCE 参数
-- 校验 `idp_session` 对应的登录 session 是否有效
-- 在满足条件时签发新的 authorization code 并重定向回 client
+- `response_type=code`
+- client の存在、状態、`authorization_code` grant の許可
+- `redirect_uri`
+- request scope が client の許可範囲内か
+- PKCE パラメータ
+- `idp_session` に対応するログインセッションの有効性
 
-`/consent` 有如下动作：
+条件を満たすと、新しい authorization code を発行して client にリダイレクトします。
 
-- 当 client 要求 consent 且当前 scope 还没被授权时，`/oauth2/authorize` 会跳到 `/consent?return_to=...`
-- `GET /consent` 会返回一个 HTML consent 页面
-- 如果请求头更偏 API 调试，也可以继续拿到当前 client 和待授权 scopes
-- `POST /consent` 支持 `action=accept` 或 `action=deny`
-- `accept` 会落库 consent 并跳回原始 authorize 请求
-- `deny` 会跳回 client `redirect_uri` 并带上 `error=access_denied`
+`/consent` では以下の挙動があります。
 
-OIDC 元数据端点也已经开放：
+- client が consent 必須で、現在の scope が未許可の場合、`/oauth2/authorize` は `/consent?return_to=...` に遷移
+- `GET /consent` は HTML の consent 画面または JSON サマリーを返す
+- `POST /consent` は `action=accept` / `action=deny` を受け付ける
+- `accept` は consent を保存して元の authorize リクエストに戻す
+- `deny` は client の `redirect_uri` に `error=access_denied` を付けて戻す
+
+OIDC メタデータ系のエンドポイントも利用できます。
 
 - `GET /.well-known/openid-configuration`
 - `GET /oauth2/jwks`
 
-当授权请求包含 `openid` scope 时，`POST /oauth2/token` 现在也会返回真正的 `id_token`。当前 `id_token` 已包含这些 OIDC 关键 claims：
+認可要求に `openid` scope が含まれている場合、`POST /oauth2/token` は `id_token` も返します。現在の `id_token` には以下の代表的な claims が含まれます。
 
 - `iss`
 - `sub`
@@ -55,81 +58,85 @@ OIDC 元数据端点也已经开放：
 - `email`
 - `email_verified`
 
-## 运行依赖
+## 動作要件
 
 - Go 1.24+
 - MySQL 8
 - Redis 7+
 
-## 初始化数据库
+## データベース初期化
 
-推荐直接用 `make`：
+基本は `make` 経由が簡単です。
 
 ```bash
 make migrate
 ```
 
-如果你的 MySQL 跑在容器里，更方便的是：
+MySQL がコンテナ内にある場合は次でも実行できます。
 
 ```bash
 make migrate-docker
 ```
 
-底层执行的就是 [migrate.sql](/workspace/idp-server/scripts/migrate.sql)。
+内部では [migrate.sql](idp-server/scripts/migrate.sql) を流しています。
 
-## 环境变量
+## 環境変数
 
-服务启动时会优先读取完整地址配置；如果没提供，会按主机名形式自动拼装。
+起動時はまず完全な接続設定を参照し、未設定ならホスト名ベースの設定から組み立てます。
 
 ### MySQL
 
-二选一：
+次のどちらかを設定します。
 
 - `MYSQL_DSN`
-- 或者同时提供：
+- または以下をまとめて設定
   - `MYSQL_HOST`
   - `MYSQL_DATABASE`
   - `MYSQL_USER`
   - `MYSQL_PASSWORD`
-  - `MYSQL_PORT` 可选，默认 `3306`
+  - `MYSQL_PORT` は省略時 `3306`
 
 ### Redis
 
-二选一：
+次のどちらかを設定します。
 
 - `REDIS_ADDR`
-- 或者：
+- または以下を設定
   - `REDIS_HOST`
-  - `REDIS_PORT` 可选，默认 `6379`
+  - `REDIS_PORT` は省略時 `6379`
 
-### Redis 在项目里的作用
+### このプロジェクトでの Redis の役割
 
-Redis 在这个项目里不是“可有可无的普通缓存”，而是 OAuth2 / OIDC 流程里的高速状态层，主要存放带 TTL、需要快速判断、适合原子更新的数据。
+Redis は単なる任意キャッシュではなく、OAuth2 / OIDC の状態管理レイヤーとして使っています。TTL 付きで高速判定が必要なデータや、原子的に更新したいデータを置く想定です。
 
-当前已经接入主流程的用途包括：
+現在、主フローに入っている用途は次の通りです。
 
-- 登录 session cache：登录成功后会把 session 写入 Redis，同时维护用户到 session 的索引，便于快速校验、查找和删除登录态
-- token cache：缓存 access token / refresh token 的摘要、过期时间、撤销标记和 refresh rotation 状态；`userinfo` bearer 认证和 `refresh_token` 轮换前都会优先检查 Redis revoke marker
-- token revoke / refresh rotation：用 Redis Lua 脚本做原子撤销和 refresh token 轮换，避免并发下状态不一致
-- consent 会话校验：`/consent` 现在会优先读取 Redis session cache，命中时直接用缓存判断登录态
+- ログイン session cache
+  ログイン成功時に Redis へ session を保存し、ユーザーから session へのインデックスも管理します。
+- token cache
+  access token / refresh token のハッシュ、失効マーカー、ローテーション状態を保持します。
+- token revoke / refresh rotation
+  Redis Lua スクリプトを使い、失効や refresh token rotation を原子的に処理します。
+- consent のセッション確認
+  `/consent` は Redis session cache を優先的に参照します。
 
-仓库里已经实现、但目前还没有完全接入主流程的能力包括：
+既に実装済みだが、まだ主フローへ完全には組み込まれていないものもあります。
 
-- authorization code 一次性消费缓存
-- OAuth `state` / OIDC `nonce` 防重放
-- 登录失败计数与临时锁定
+- authorization code の一度きり消費キャッシュ
+- OAuth `state` / OIDC `nonce` の再利用防止
+- ログイン失敗回数と一時ロック
 
-可以把它理解成：
+整理すると次のイメージです。
 
-- MySQL 更像持久化真相源，存业务主数据
-- Redis 更像安全流程里的临时状态层，负责高频读写、短期状态和原子控制
+- MySQL は永続的な truth source
+- Redis は短期状態と高速・原子的な制御を担う層
 
-### MySQL / Redis 请求流转图
+### MySQL / Redis のリクエストフロー
 
-下面这张图把当前实现里登录、授权码、token 刷新三条链路串起来了。可以先抓住一个大方向：
+大きな流れは次の通りです。
 
-- 登录态和 token 临时状态主要借助 Redis 提速与做原子控制
-- 用户、client、authorization code、refresh token 的持久化真相仍然主要在 MySQL
+- ログイン状態や token の短期状態は Redis で高速に扱う
+- ユーザー、client、authorization code、refresh token の永続データは主に MySQL に保存する
 
 ```mermaid
 sequenceDiagram
@@ -141,68 +148,95 @@ sequenceDiagram
     participant M as MySQL
     participant R as Redis
 
-    Note over B,R: 1. 登录
+    Note over B,R: 1. Login
     B->>A: POST /login
-    A->>M: 查询 users / 校验密码
-    M-->>A: 用户与密码校验结果
-    A->>M: 写入 login_sessions
-    A->>R: 写入 session cache 与用户 session 索引
-    A-->>B: 返回 idp_session cookie
+    A->>M: users を参照しパスワード検証
+    A->>M: login_sessions へ保存
+    A->>R: session cache と user-session index を保存
+    A-->>B: idp_session cookie を返す
 
-    Note over B,R: 2. 授权码
+    Note over B,R: 2. Authorization Code
     B->>Z: GET /oauth2/authorize + idp_session
-    Z->>M: 查询 oauth_clients
-    Z->>M: 查询 login_sessions
-    Z->>M: 查询 consents
-    Z->>M: 写入 authorization_codes
-    Z-->>B: 302 redirect with code
+    Z->>M: oauth_clients / login_sessions / consents を参照
+    Z->>M: authorization_codes を保存
+    Z-->>B: code 付きで 302 redirect
 
-    Note over B,R: 3. 用 code 换 token
+    Note over B,R: 3. Exchange Token
     B->>T: POST /oauth2/token (authorization_code)
-    T->>M: 查询 oauth_clients
-    T->>M: 消费 authorization_codes
-    T->>M: 查询 users
-    T->>M: 写入 access_tokens
-    T->>M: 写入 refresh_tokens
-    T->>R: 写入 access token cache
-    T->>R: 写入 refresh token cache
-    T-->>B: 返回 access_token / refresh_token / id_token
+    T->>M: authorization code を消費
+    T->>M: access_tokens / refresh_tokens を保存
+    T->>R: access / refresh token cache を保存
+    T-->>B: access_token / refresh_token / id_token を返す
 
-    Note over B,R: 4. refresh token 轮换
+    Note over B,R: 4. Refresh Token Rotation
     B->>T: POST /oauth2/token (refresh_token)
-    T->>M: 查询 oauth_clients
-    T->>M: 查询有效 refresh_tokens
-    T->>M: 查询 users
-    T->>M: 写入 access_tokens
-    T->>M: 轮换 refresh_tokens\n旧 token revoked_at + 新 token 写入
-    T->>R: rotate_token.lua 原子轮换
-    R-->>T: 新 refresh token cache + 旧 revoke marker
-    T-->>B: 返回新 access_token / refresh_token
+    T->>M: 旧 refresh token の有効性を確認
+    T->>M: 新 access token / refresh token を保存
+    T->>R: rotate_token.lua で原子的に回転
+    T-->>B: 新しい access_token / refresh_token を返す
 ```
 
-结合当前代码，三条链路的分工大致是：
+現在のコードベースに即して言うと、役割分担はだいたい次のようになります。
 
-- 登录：先查 MySQL 用户与密码，成功后把 session 同时写入 MySQL 和 Redis
-- 授权码：`/oauth2/authorize` 当前主要查 MySQL 里的 client、session、consent，并把 authorization code 持久化到 MySQL
-- 用 code 换 token：先消费 MySQL 中的 authorization code，再签发 token；access token / refresh token 会同时写 MySQL 和 Redis
-- 刷新 token：旧 refresh token 的有效性与轮换结果以 MySQL 为准，Redis 用来缓存新 token 状态并通过 Lua 脚本原子写入撤销标记
+- ログイン
+  MySQL でユーザーとパスワードを検証した後、session を MySQL と Redis の両方へ保存
+- 認可コード
+  `/oauth2/authorize` は主に MySQL の client / session / consent を参照し、authorization code を MySQL に永続化
+- code から token 交換
+  MySQL 上の authorization code を消費し、access token / refresh token を発行して MySQL と Redis に保存
+- refresh token 交換
+  MySQL を基準に有効性を判定しつつ、Redis では新 token 状態と revoke marker を原子的に管理
 
-当前仓库里也已经有 authorization code cache、`state` / `nonce` 防重放、登录失败计数这些 Redis 组件，但还没有全部接进主流程，所以图里按“当前实际主链路”画成了 MySQL 主导。
-
-### 其他可选配置
+### その他の設定
 
 - `REDIS_PASSWORD`
-- `REDIS_DB`，默认 `0`
-- `REDIS_KEY_PREFIX`，默认 `idp`
-- `APP_ENV`，默认 `dev`
-- `SESSION_TTL`，默认 `8h`
-- `ISSUER`，默认 `http://localhost:8080`
-- `JWT_KEY_ID`，默认 `kid-2026-01-rs256`
-- `LISTEN_ADDR`，默认 `:8080`
+- `REDIS_DB` 既定値 `0`
+- `REDIS_KEY_PREFIX` 既定値 `idp`
+- `APP_ENV` 既定値 `dev`
+- `SESSION_TTL` 既定値 `8h`
+- `ISSUER` 既定値 `http://localhost:8080`
+- `JWT_KEY_ID` 既定値 `kid-2026-01-rs256`
+- `LISTEN_ADDR` 既定値 `:8080`
 
-## 按你当前环境启动
+### Federated OIDC
 
-如果你现在的环境变量是：
+外部 OIDC Provider を上流 IdP として使う場合は、少なくとも次を設定します。
+
+- `FEDERATED_OIDC_ISSUER`
+- `FEDERATED_OIDC_CLIENT_ID`
+- `FEDERATED_OIDC_CLIENT_SECRET`
+- `FEDERATED_OIDC_REDIRECT_URI`
+
+必要に応じて次も上書きできます。
+
+- `FEDERATED_OIDC_CLIENT_AUTH_METHOD`
+  - `client_secret_basic` または `client_secret_post`
+- `FEDERATED_OIDC_SCOPES`
+  - 既定値 `openid profile email`
+- `FEDERATED_OIDC_STATE_TTL`
+  - 既定値 `10m`
+- `FEDERATED_OIDC_USERNAME_CLAIM`
+  - 既定値 `preferred_username`
+- `FEDERATED_OIDC_DISPLAY_NAME_CLAIM`
+  - 既定値 `name`
+- `FEDERATED_OIDC_EMAIL_CLAIM`
+  - 既定値 `email`
+
+例:
+
+```bash
+export FEDERATED_OIDC_ISSUER=https://accounts.example.com
+export FEDERATED_OIDC_CLIENT_ID=idp-server
+export FEDERATED_OIDC_CLIENT_SECRET=replace-me
+export FEDERATED_OIDC_REDIRECT_URI=http://localhost:8080/login
+export FEDERATED_OIDC_SCOPES="openid profile email"
+```
+
+現在の実装では、外部 OIDC から取得した `sub` / username / email のいずれかでローカル `users` を引けることが前提です。初回ログイン時の自動ユーザー作成はまだ行いません。
+
+## ローカル起動
+
+例えば現在の環境変数が次のようになっているなら:
 
 ```bash
 export REDIS_HOST=redis
@@ -212,7 +246,7 @@ export MYSQL_USER=app
 export MYSQL_PASSWORD=apppass
 ```
 
-再补几个推荐值：
+追加で次を設定しておくと分かりやすいです。
 
 ```bash
 export APP_ENV=dev
@@ -220,29 +254,120 @@ export ISSUER=http://localhost:8080
 export LISTEN_ADDR=:8080
 ```
 
-可以先看一眼当前会用到的配置：
+有効な設定値は次で確認できます。
 
 ```bash
 make env
 ```
 
-然后直接启动：
+ワンライナーで起動する場合（環境変数をそのまま渡す）:
+
+```bash
+REDIS_HOST=redis MYSQL_HOST=db MYSQL_DATABASE=app MYSQL_USER=app MYSQL_PASSWORD=apppass APP_ENV=dev ISSUER=http://localhost:8080 LISTEN_ADDR=:8080 make run
+```
+
+PowerShell で一行起動する場合:
+
+```powershell
+$env:REDIS_HOST='redis'; $env:MYSQL_HOST='db'; $env:MYSQL_DATABASE='app'; $env:MYSQL_USER='app'; $env:MYSQL_PASSWORD='apppass'; $env:APP_ENV='dev'; $env:ISSUER='http://localhost:8080'; $env:LISTEN_ADDR=':8080'; make run
+```
+
+起動:
 
 ```bash
 make run
 ```
 
-健康检查：
+ヘルスチェック:
 
 ```bash
 curl http://localhost:8080/healthz
 ```
 
-## 当前可用的测试账号和客户端
+## Docker で一発起動
 
-这些 fixture 都来自 [migrate.sql](/workspace/idp-server/scripts/migrate.sql)。
+手元で MySQL や Redis を個別に用意したくない場合は、リポジトリ直下の [compose.quickstart.yaml](compose.quickstart.yaml) を使うのが最短です。
 
-### 用户
+前提:
+
+- `ghcr.io` にログイン済みで、`ghcr.io/wsplxa/oauth2-sienne-idp-server` を pull できること
+- Docker Compose v2 が使えること
+
+ログイン例:
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+```
+
+起動:
+
+```bash
+docker compose -f compose.quickstart.yaml up -d
+```
+
+PowerShell でソース不要の一行起動（compose を取得して起動）:
+※ `compose.quickstart.yaml` を公開 URL から取得できる場合のみ。
+
+```powershell
+irm https://YOUR_PUBLIC_HOST/compose.quickstart.yaml -OutFile compose.quickstart.yaml; docker compose -f compose.quickstart.yaml up -d
+```
+
+スクリプト経由で一行起動（1. スクリプト取得 2. compose 実行 3. 起動）:
+リポジトリが private の場合は `quickstart.ps1` を公開 URL に置いてください（URL を差し替え）。
+
+```powershell
+irm https://YOUR_PUBLIC_HOST/quickstart.ps1 -OutFile quickstart.ps1; powershell -ExecutionPolicy Bypass -File .\quickstart.ps1
+```
+
+これで次がまとめて起動します。
+
+- MySQL 8.4
+- Redis 7
+- GHCR 上の `idp-server` イメージ
+
+初回起動時は [migrate.sql](idp-server/scripts/migrate.sql) が MySQL に自動適用されるので、追加の手動初期化は不要です。
+
+確認:
+
+```bash
+curl http://localhost:8080/healthz
+```
+
+既定では server イメージに `latest` タグを使います。特定の SHA タグを使いたい場合は環境変数で上書きできます。
+
+```bash
+IDP_SERVER_IMAGE=ghcr.io/wsplxa/oauth2-sienne-idp-server:sha-5367b14 \
+docker compose -f compose.quickstart.yaml up -d
+```
+
+主な上書き可能項目:
+
+- `IDP_SERVER_IMAGE`
+- `IDP_SERVER_PORT`
+- `IDP_ISSUER`
+- `IDP_MYSQL_PORT`
+- `IDP_REDIS_PORT`
+- `IDP_MYSQL_DATABASE`
+- `IDP_MYSQL_USER`
+- `IDP_MYSQL_PASSWORD`
+
+停止:
+
+```bash
+docker compose -f compose.quickstart.yaml down
+```
+
+DB / Redis のデータも含めて初期化し直したい場合:
+
+```bash
+docker compose -f compose.quickstart.yaml down -v
+```
+
+## 現在利用できるテストアカウントと client
+
+以下の fixture は [migrate.sql](idp-server/scripts/migrate.sql) に含まれています。
+
+### ユーザー
 
 - `alice / alice123`
 - `bob / bob123`
@@ -251,34 +376,32 @@ curl http://localhost:8080/healthz
 ### OAuth Client
 
 - `web-client / secret123`
-- `mobile-public-client / (public client，无 client secret)`
+- `mobile-public-client / (public client, client secret なし)`
 - `service-client / service123`
 
-### 授权码联调夹具
+### 認可コードの疎通確認用 fixture
 
 - `code`: `sample_auth_code_abc123`
 - `redirect_uri`: `http://localhost:8081/callback`
 - `code_verifier`: `verifier123`
 - `seed session cookie`: `idp_session=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`
 
-## 接口说明
+## API 利用例
 
-### 1. 注册
+### 1. ユーザー登録
 
-支持完整注册接口：
+`POST /register` では次を検証します。
 
-- 校验用户名格式
-- 校验邮箱格式
-- 校验显示名长度
-- 校验密码强度
-- 检查用户名唯一性
-- 检查邮箱唯一性
-- 使用 `PasswordVerifier.HashPassword(...)` 生成 bcrypt hash
-- 写入 `users`
+- username 形式
+- email 形式
+- display name 長さ
+- password 強度
+- username の一意性
+- email の一意性
+- `PasswordVerifier.HashPassword(...)` による bcrypt hash 生成
+- `users` への保存
 
-真正注册使用 `POST /register`。
-
-示例：
+例:
 
 ```bash
 curl -i \
@@ -292,53 +415,28 @@ curl -i \
   }'
 ```
 
-成功后返回 `201 Created`，并带回新用户的基础信息。
+成功時は `201 Created` と新規ユーザー情報を返します。
 
-当前密码策略是：
+パスワードポリシー:
 
-- 长度 `8-128`
-- 至少包含一个字母
-- 至少包含一个数字
+- 長さ `8-128`
+- 英字を 1 文字以上含む
+- 数字を 1 文字以上含む
 
-冲突和校验失败时：
+主なエラー:
 
-- 用户名/邮箱已存在：`409 Conflict`
-- 格式不合法或密码太弱：`400 Bad Request`
+- username / email 重複: `409 Conflict`
+- 形式不正または弱い password: `400 Bad Request`
 
-### 2. 登录
+### 2. ログイン
 
-`GET /login` 现在同时支持两种模式：
+`GET /login` は次の 2 モードをサポートします。
 
-- 浏览器访问时返回一个可直接提交的 HTML 登录页
-- API 调试时继续返回 JSON 提示
+- ブラウザ向け: 送信可能な HTML ログインページを返す
+- API 向け: JSON の案内を返す
+- `method=federated_oidc` を付けると外部 OIDC ログインを開始する
 
-真正提交登录仍然使用 `POST /login`。
-
-### 2.1 登出
-
-`POST /logout` 会执行这些动作：
-
-- 读取 `idp_session` cookie
-- 将 MySQL `login_sessions.logged_out_at` 标记为已登出
-- 删除 Redis session cache 和用户 session 索引
-- 清空浏览器 `idp_session` cookie
-
-直接调用：
-
-```bash
-curl -i -X POST http://localhost:8080/logout \
-  --cookie 'idp_session=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-```
-
-如果你是浏览器表单流，也可以带 `return_to`，成功后会 `302` 回跳：
-
-```bash
-curl -i -X POST http://localhost:8080/logout \
-  --cookie 'idp_session=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' \
-  --data-urlencode 'return_to=/login'
-```
-
-示例：
+ログイン実行は `POST /login` です。
 
 ```bash
 curl -i \
@@ -350,26 +448,70 @@ curl -i \
   }'
 ```
 
-成功后会：
+成功時の挙動:
 
-- 返回 `session_id`
-- 设置 `idp_session` Cookie
-- 写入 MySQL `login_sessions`
-- 写入 Redis session cache 和用户 session 索引
+- `session_id` を返す
+- `idp_session` cookie を設定
+- MySQL `login_sessions` に保存
+- Redis session cache と user-session index に保存
 
-### 2.1 OAuth Client 管理
+### 2.1 Federated OIDC ログイン
 
-现在已经支持通过 HTTP 直接创建 OAuth client，并在后续为它追加 redirect URI。
+外部 OIDC を使う場合、ブラウザは次から開始できます。
 
-`POST /oauth2/clients` 会一次性写入这些表：
+```text
+/login?method=federated_oidc&return_to=/oauth2/authorize?...
+```
+
+流れ:
+
+- `/login?method=federated_oidc...` へアクセス
+- server が `state` / `nonce` を Redis に保存
+- 外部 OIDC Provider の `authorization_endpoint` へ 302 redirect
+- 外部 Provider から `GET /login?code=...&state=...` で戻る
+- server が token exchange と userinfo 取得を行う
+- ローカル user と紐づけば `idp_session` cookie を設定
+- 元の `return_to` へ戻る
+
+注意:
+
+- `FEDERATED_OIDC_*` を未設定のまま `method=federated_oidc` を呼ぶと失敗します
+- 現時点では Just-In-Time provisioning は未実装で、ローカル user が既に存在する必要があります
+
+### 2.2 ログアウト
+
+`POST /logout` では次を行います。
+
+- `idp_session` cookie を読む
+- MySQL `login_sessions.logged_out_at` を更新
+- Redis session cache と user-session index を削除
+- ブラウザの `idp_session` cookie を消す
+
+```bash
+curl -i -X POST http://localhost:8080/logout \
+  --cookie 'idp_session=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+```
+
+ブラウザフォーム的な流れでは `return_to` を渡すこともでき、その場合は成功後に `302` で戻します。
+
+```bash
+curl -i -X POST http://localhost:8080/logout \
+  --cookie 'idp_session=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' \
+  --data-urlencode 'return_to=/login'
+```
+
+### 2.3 OAuth Client 管理
+
+`POST /oauth2/clients` は以下のテーブルへまとめて書き込みます。
 
 - `oauth_clients`
 - `oauth_client_grant_types`
 - `oauth_client_auth_methods`
 - `oauth_client_scopes`
-- `oauth_client_redirect_uris`（当请求里带了 `redirect_uris` 且 grant 包含 `authorization_code` 时）
+- `oauth_client_redirect_uris`
+  `redirect_uris` があり、grant に `authorization_code` が含まれる場合
 
-创建一个 confidential web client：
+confidential web client の作成:
 
 ```bash
 curl -i \
@@ -385,7 +527,7 @@ curl -i \
   }'
 ```
 
-创建一个 service client：
+service client の作成:
 
 ```bash
 curl -i \
@@ -400,16 +542,16 @@ curl -i \
   }'
 ```
 
-当前的创建规则包括：
+主な作成ルール:
 
-- `client_type` 默认是 `confidential`
-- `confidential` 默认 `token_endpoint_auth_method=client_secret_basic`
-- `public` 默认 `token_endpoint_auth_method=none`
-- `public` client 必须启用 PKCE
-- `client_credentials` 只允许配置在 `confidential` client 上
-- `authorization_code` client 必须提供至少一个合法 `redirect_uri`
+- `client_type` の既定値は `confidential`
+- `confidential` の既定 `token_endpoint_auth_method` は `client_secret_basic`
+- `public` の既定 `token_endpoint_auth_method` は `none`
+- `public` client は PKCE 必須
+- `client_credentials` は `confidential` client のみ
+- `authorization_code` client は少なくとも 1 つの有効な `redirect_uri` が必要
 
-如果你只是想给现有 client 追加回调地址，可以用：
+既存 client への redirect URI 追加:
 
 ```bash
 curl -i \
@@ -423,11 +565,11 @@ curl -i \
   }'
 ```
 
-这个端点是幂等的；重复注册同一个 URI 会被跳过，不会重复写入。
+このエンドポイントは冪等です。同じ URI を重ねて登録しても重複保存しません。
 
-### 3. 用 authorization code 换 token
+### 3. authorization code で token 交換
 
-当前最容易联调的方式是直接使用 seed 里的 sample code：
+最も簡単なのは seed の sample code を使う方法です。
 
 ```bash
 curl -i \
@@ -440,7 +582,7 @@ curl -i \
   -d 'code_verifier=verifier123'
 ```
 
-成功后会返回：
+成功時のレスポンス:
 
 - `access_token`
 - `refresh_token`
@@ -448,9 +590,9 @@ curl -i \
 - `expires_in`
 - `scope`
 
-### 3.1 真实走一遍 authorize
+### 3.1 authorize を実際に試す
 
-如果你想确认 `/oauth2/authorize` 现在已经会真实发 code，最快的方式是直接带 seed 里的 session cookie：
+seed の session cookie を直接使うと確認が早いです。
 
 ```bash
 curl -i \
@@ -458,27 +600,25 @@ curl -i \
   'http://localhost:8080/oauth2/authorize?response_type=code&client_id=web-client&redirect_uri=http://localhost:8081/callback&scope=openid%20profile%20email&state=demo-state&code_challenge=Z_P4EKbGwIkA01e3Y5fp4tMCvn_Ae5nUw7qY7XwkTrQ&code_challenge_method=S256'
 ```
 
-成功时会返回 `302`，并跳到：
+成功時は `302` で次へ飛びます。
 
 ```text
 http://localhost:8081/callback?code=...&state=demo-state
 ```
 
-我已经按这条路径做过一次真实联调，随后再用返回的 `code` 调 `/oauth2/token`，换 token 成功。
+### 3.2 未ログイン時の挙動
 
-### 3.2 未登录时的行为
-
-如果你没有带 `idp_session`，`/oauth2/authorize` 会先把你重定向到 `/login`，并自动附带 `return_to`：
+`idp_session` が無い場合、`/oauth2/authorize` はまず `/login` にリダイレクトし、元の authorize URL を `return_to` に乗せます。
 
 ```text
 /login?return_to=/oauth2/authorize?...
 ```
 
-登录成功后，`POST /login` 现在会在设置 `idp_session` cookie 后跳回原始 authorize URL。
+ログイン成功後、`POST /login` は `idp_session` cookie を設定した上で元の authorize URL に戻します。
 
-### 3.3 consent 流程
+### 3.3 consent フロー
 
-如果你请求的 scope 超过了当前已授权范围，例如加上 `offline_access`，`/oauth2/authorize` 会先跳到 `/consent`：
+既存 consent より広い scope を要求した場合、例えば `offline_access` を追加すると `/oauth2/authorize` は先に `/consent` へ遷移します。
 
 ```bash
 curl -i \
@@ -486,13 +626,13 @@ curl -i \
   'http://localhost:8080/oauth2/authorize?response_type=code&client_id=web-client&redirect_uri=http://localhost:8081/callback&scope=openid%20profile%20email%20offline_access&state=consent-state&code_challenge=Z_P4EKbGwIkA01e3Y5fp4tMCvn_Ae5nUw7qY7XwkTrQ&code_challenge_method=S256'
 ```
 
-这时返回会是：
+このとき:
 
 ```text
 Location: /consent?return_to=...
 ```
 
-查看 consent 内容：
+consent 内容の確認:
 
 ```bash
 curl -i \
@@ -500,9 +640,7 @@ curl -i \
   'http://localhost:8080/consent?return_to=/oauth2/authorize?response_type=code&client_id=web-client&redirect_uri=http://localhost:8081/callback&scope=openid%20profile%20email%20offline_access&state=consent-state&code_challenge=Z_P4EKbGwIkA01e3Y5fp4tMCvn_Ae5nUw7qY7XwkTrQ&code_challenge_method=S256'
 ```
 
-如果你是直接用浏览器打开这个 URL，现在会看到一个真正的 consent 页面，而不是纯 JSON。
-
-接受授权：
+accept:
 
 ```bash
 curl -i \
@@ -513,7 +651,7 @@ curl -i \
   --data-urlencode 'return_to=/oauth2/authorize?response_type=code&client_id=web-client&redirect_uri=http://localhost:8081/callback&scope=openid profile email offline_access&state=consent-state&code_challenge=Z_P4EKbGwIkA01e3Y5fp4tMCvn_Ae5nUw7qY7XwkTrQ&code_challenge_method=S256'
 ```
 
-拒绝授权：
+deny:
 
 ```bash
 curl -i \
@@ -524,15 +662,15 @@ curl -i \
   --data-urlencode 'return_to=/oauth2/authorize?response_type=code&client_id=web-client&redirect_uri=http://localhost:8081/callback&scope=openid profile email offline_access&state=deny-state&code_challenge=Z_P4EKbGwIkA01e3Y5fp4tMCvn_Ae5nUw7qY7XwkTrQ&code_challenge_method=S256'
 ```
 
-`deny` 时会跳回：
+deny 時の戻り先:
 
 ```text
 http://localhost:8081/callback?error=access_denied&state=deny-state
 ```
 
-### 4. 用 refresh token 轮换
+### 4. refresh token rotation
 
-把上一步返回的 `refresh_token` 带上：
+取得済みの `refresh_token` を使います。
 
 ```bash
 curl -i \
@@ -543,16 +681,16 @@ curl -i \
   -d 'refresh_token=REPLACE_WITH_REFRESH_TOKEN'
 ```
 
-当前实现会真正做 refresh token rotation：
+現在の実装では実際に rotation を行います。
 
-- 旧 refresh token 在 MySQL 中写入 `revoked_at`
-- 新 refresh token 被创建
-- Redis 中执行 `rotate_token.lua`
-- 旧 token 的 revoke marker 会被写入 Redis
+- 旧 refresh token に MySQL で `revoked_at` を設定
+- 新 refresh token を生成
+- Redis で `rotate_token.lua` を実行
+- 旧 token の revoke marker を Redis に保存
 
-### 4.1 用 client_credentials 换 token
+### 4.1 client_credentials
 
-对于 service client，可以直接走 `client_credentials`：
+service client なら `client_credentials` grant を使えます。
 
 ```bash
 curl -i \
@@ -563,22 +701,22 @@ curl -i \
   -d 'scope=internal.api.read'
 ```
 
-成功后会返回：
+成功時:
 
 - `access_token`
 - `token_type`
 - `expires_in`
 - `scope`
 
-当前实现里：
+現在のルール:
 
-- 如果不传 `scope`，默认会下发该 client 允许的全部 scopes
-- 如果请求了未被该 client 授权的 scope，会返回 `invalid_scope`
-- `client_credentials` 不会返回 `refresh_token`
+- `scope` 未指定時は、その client に許可された全 scope を発行
+- 許可されていない scope を要求すると `invalid_scope`
+- `client_credentials` では `refresh_token` は返さない
 
-### 5. 获取 userinfo
+### 5. userinfo
 
-把 `access_token` 作为 Bearer token 带上：
+`access_token` を Bearer token として渡します。
 
 ```bash
 curl -i \
@@ -586,7 +724,7 @@ curl -i \
   -H 'Authorization: Bearer REPLACE_WITH_ACCESS_TOKEN'
 ```
 
-成功返回类似：
+レスポンス例:
 
 ```json
 {
@@ -600,13 +738,11 @@ curl -i \
 
 ### 6. OIDC Discovery
 
-Discovery 文档：
-
 ```bash
 curl http://localhost:8080/.well-known/openid-configuration
 ```
 
-当前会返回这些核心字段：
+主な項目:
 
 - `issuer`
 - `authorization_endpoint`
@@ -619,13 +755,11 @@ curl http://localhost:8080/.well-known/openid-configuration
 
 ### 7. JWKS
 
-公开 JWK 集：
-
 ```bash
 curl http://localhost:8080/oauth2/jwks
 ```
 
-当前会返回运行时 RSA signing key 对应的公钥，字段包括：
+公開 JWK には主に次が含まれます。
 
 - `kty`
 - `kid`
@@ -634,62 +768,61 @@ curl http://localhost:8080/oauth2/jwks
 - `n`
 - `e`
 
-## Signing Key 持久化
+## Signing Key の永続化
 
-现在这版已经不再默认依赖“进程启动时临时生成 key”来支撑 discovery / JWKS。
+現在は「プロセス起動時に毎回一時鍵を作る」方式に依存しません。
 
-当前启动流程会优先：
+起動時の流れ:
 
-1. 从 MySQL 的 `jwk_keys` 读取当前可用 key 元数据
-2. 根据 `private_key_ref` 加载真实私钥
-3. 用加载到的 active signing key 进行 JWT 签发
-4. 用 `jwk_keys` 中的公开 JWK 构建 `/oauth2/jwks`
-5. 周期检查 active key 的 `rotates_at`，在进入 rotation 窗口时自动生成下一把 key
-6. 将旧 active key 退役为非 active，并保留一段可验证旧 token 的公开 key 生命周期
+1. MySQL `jwk_keys` から有効な key metadata を読む
+2. `private_key_ref` から秘密鍵を読み込む
+3. active signing key で JWT を署名する
+4. `jwk_keys` の公開情報から `/oauth2/jwks` を構築する
+5. `rotates_at` を定期確認し、ローテーション期間に入ったら次の鍵を生成する
+6. 旧 active key は非 active にしつつ、既存 token 検証のため一定期間 JWKS に残す
 
-当前支持的 `private_key_ref` 形式：
+`private_key_ref` でサポートしている形式:
 
 - `file://relative/or/absolute/path`
 - `env://ENV_VAR_NAME`
 - `vault://path/to/key`
 - `kms://key/name`
 
-开发环境里，seed 已经内置了一把稳定 dev key：
+開発環境では安定した dev key を seed 済みです。
 
 - `kid`: `kid-2026-01-rs256`
 - `private_key_ref`: `file://scripts/dev_keys/kid-2026-01-rs256.pem`
 
-这意味着：
+これにより:
 
-- 服务重启后 `kid` 不会漂移
-- `/.well-known/openid-configuration` 和 `/oauth2/jwks` 会稳定返回同一把 seed key
-- 新签发的 JWT 头会带稳定的 `kid`
-- 当 active key 接近 `rotates_at` 时，服务会自动生成新 key、持久化到 `jwk_keys`、并热刷新内存 key manager
-- 旧 key 会在退役窗口内继续出现在 JWKS，方便已签发 token 平滑过渡
+- 再起動しても `kid` が変わらない
+- `/.well-known/openid-configuration` と `/oauth2/jwks` が安定した鍵を返す
+- 新規 JWT の header に安定した `kid` が入る
+- `rotates_at` が近づくと自動で新 key を生成して `jwk_keys` とメモリ上の key manager を更新する
+- 旧 key は退役ウィンドウ中も JWKS に残る
 
-如果数据库里没有可用 key，服务仍然会回退到进程内生成 key，避免本地环境直接起不来；但推荐重新执行 [migrate.sql](/workspace/idp-server/scripts/migrate.sql) 或更新 `jwk_keys`，让服务使用持久化 key。
+もし DB に利用可能な key がない場合、サービスは起動不能を避けるためプロセス内生成 key にフォールバックします。ただし、推奨は [migrate.sql](idp-server/scripts/migrate.sql) を再適用するか、`jwk_keys` を更新して永続 key を使うことです。
 
-相关环境变量：
+関連環境変数:
 
-- `SIGNING_KEY_DIR`，默认 `scripts/dev_keys`
-- `SIGNING_KEY_BITS`，默认 `2048`
-- `SIGNING_KEY_CHECK_INTERVAL`，默认 `1h`
-- `SIGNING_KEY_ROTATE_BEFORE`，默认 `24h`
-- `SIGNING_KEY_RETIRE_AFTER`，默认 `24h`
+- `SIGNING_KEY_DIR` 既定値 `scripts/dev_keys`
+- `SIGNING_KEY_BITS` 既定値 `2048`
+- `SIGNING_KEY_CHECK_INTERVAL` 既定値 `1h`
+- `SIGNING_KEY_ROTATE_BEFORE` 既定値 `24h`
+- `SIGNING_KEY_RETIRE_AFTER` 既定値 `24h`
 
-关于 `vault://` 和 `kms://`：
+`vault://` と `kms://` について:
 
-- 当前这两种 scheme 已经能接入启动加载流程
-- 默认会把引用映射到环境变量读取 PEM
-- 例如 `vault://idp/keys/main` 会映射到环境变量 `VAULT_IDP_KEYS_MAIN`
-- `kms://prod/signing/key` 会映射到环境变量 `KMS_PROD_SIGNING_KEY`
-- 这让本地、容器和简化部署场景可以先跑通，不必先接真正的外部 secret SDK
+- 現在は起動時読み込みに接続されている
+- 既定では参照先を環境変数へマッピングして PEM を読む
+- 例: `vault://idp/keys/main` -> `VAULT_IDP_KEYS_MAIN`
+- 例: `kms://prod/signing/key` -> `KMS_PROD_SIGNING_KEY`
 
-## Redis Lua 脚本
+## Redis Lua スクリプト
 
-Lua 脚本放在 [scripts/lua](/workspace/idp-server/scripts/lua)，服务启动时会预热 `SCRIPT LOAD`。
+Lua スクリプトは [scripts/lua](idp-server/scripts/lua) にあります。サービス起動時に `SCRIPT LOAD` でプリロードされます。
 
-当前已经接入的脚本包括：
+現在含まれているスクリプト:
 
 - `save_session.lua`
 - `delete_session.lua`
@@ -700,25 +833,25 @@ Lua 脚本放在 [scripts/lua](/workspace/idp-server/scripts/lua)，服务启动
 - `revoke_token.lua`
 - `rotate_token.lua`
 
-这些脚本目前用于：
+主な用途:
 
-- session 与用户索引原子写入/删除
-- authorization code 一次性消费
-- state / nonce 防重放
-- 登录失败计数
-- token revoke 黑名单
+- session と user index の原子的な保存 / 削除
+- authorization code の一度きり消費
+- state / nonce の再利用防止
+- ログイン失敗回数カウント
+- token revoke ブラックリスト
 - refresh token rotation
 
-更多参数约定可以看 [scripts/lua/README.md](/workspace/idp-server/scripts/lua/README.md)。
+パラメータの詳細は [scripts/lua/README.md](idp-server/scripts/lua/README.md) を参照してください。
 
-## 日志与认证中间件
+## ログと認証ミドルウェア
 
-当前 HTTP 层已经接了：
+HTTP レイヤーには次が入っています。
 
-- 请求日志中间件
-- Bearer token 认证中间件
+- リクエストログミドルウェア
+- Bearer token 認証ミドルウェア
 
-日志里会带上这些关键信息：
+ログに含まれる主なフィールド:
 
 - `request_id`
 - `method`
@@ -728,19 +861,19 @@ Lua 脚本放在 [scripts/lua](/workspace/idp-server/scripts/lua)，服务启动
 - `client_id`
 - `subject`
 
-如果请求没有 `X-Request-ID`，服务会自动生成一个，并回写到响应头。
+`X-Request-ID` がない場合はサーバー側で生成し、レスポンスヘッダーにも返します。
 
-## 当前边界
+## 現在の制約
 
-这版服务已经能做真实的 token 和 userinfo 联调，但还不是完整 OIDC server。
+このサーバーは実際の token / userinfo 連携を試せますが、まだ完全な OIDC server ではありません。
 
-当前边界是：
+現在の主な制約:
 
-- `vault://` / `kms://` 目前是环境变量适配层，不是真正的 Vault/KMS SDK 集成
-- rotation 现在是进程内定时检查，尚未做独立控制面、审计记录和并发分布式锁
-- 联邦登录插件结构已搭好，但外部 OIDC connector 还没接完
+- `vault://` / `kms://` は本物の SDK 統合ではなく、現状は環境変数アダプター
+- key rotation はプロセス内タイマーで行っており、分散ロックや専用制御面は未実装
+- 外部 OIDC ログインは既存ローカル user への紐付けを前提としており、初回ログイン時の自動 user 作成は未実装
 
-## 常用开发命令
+## よく使う開発コマンド
 
 ```bash
 make build
@@ -752,59 +885,59 @@ make migrate
 make migrate-docker
 ```
 
-## 编译与部署
+## ビルドとデプロイ
 
-现在推荐统一走 [Makefile](/workspace/idp-server/Makefile)。
+基本は [Makefile](idp-server/Makefile) の利用を推奨します。
 
-### 本地编译
+### ローカルビルド
 
 ```bash
 make build
 ```
 
-产物默认在：
+出力先:
 
 ```text
 bin/idp-server
 ```
 
-### 本地运行
+### ローカル起動
 
 ```bash
 make run
 ```
 
-如果你需要覆盖默认配置，可以直接在命令行传值：
+既定値を上書きする場合:
 
 ```bash
 make run ISSUER=http://localhost:8080 LISTEN_ADDR=:8080
 ```
 
-### 数据库初始化
+### DB 初期化
 
-本机 MySQL：
+ローカル MySQL:
 
 ```bash
 make migrate
 ```
 
-容器内 MySQL：
+コンテナ内 MySQL:
 
 ```bash
 make migrate-docker
 ```
 
-### Docker 镜像构建
+### Docker イメージビルド
 
-当前默认会使用 [dockerfile.server](/workspace/idp-server/dockerfile.server)：
+既定では [dockerfile.server](idp-server/dockerfile.server) を使います。
 
 ```bash
 make docker-build IMAGE=idp-server:latest
 ```
 
-### Compose 启停
+### Compose 起動 / 停止
 
-当前仓库根目录已经有 [docker-compose.yml](/workspace/idp-server/docker-compose.yml)：
+リポジトリ内の compose ファイルは [docker-compose.yml](idp-server/docker-compose.yml) です。
 
 ```bash
 make up
@@ -812,15 +945,15 @@ make logs
 make down
 ```
 
-如果 compose 文件不在默认位置，可以传 `COMPOSE_FILE`：
+別の compose ファイルを使う場合:
 
 ```bash
 make up COMPOSE_FILE=../infra/docker-compose.yml
 ```
 
-### 一个典型部署顺序
+### 典型的なデプロイ順
 
-开发或测试环境通常就是这几步：
+開発・検証環境:
 
 ```bash
 make migrate-docker
@@ -828,7 +961,7 @@ make build
 make run ISSUER=http://localhost:8080
 ```
 
-如果是容器部署，通常就是：
+コンテナ配備:
 
 ```bash
 make migrate-docker

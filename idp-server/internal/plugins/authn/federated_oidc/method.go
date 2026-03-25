@@ -3,6 +3,7 @@ package federated_oidc
 import (
 	"context"
 
+	appauthn "idp-server/internal/application/authn"
 	"idp-server/internal/ports/federation"
 	pluginport "idp-server/internal/ports/plugin"
 )
@@ -29,14 +30,12 @@ func (m *Method) Type() pluginport.AuthnMethodType {
 
 func (m *Method) Authenticate(ctx context.Context, input pluginport.AuthenticateInput) (*pluginport.AuthenticateResult, error) {
 	if m.connector == nil {
-		return &pluginport.AuthenticateResult{
-			Handled:       false,
-			Authenticated: false,
-		}, nil
+		return nil, appauthn.ErrUnsupportedMethod
 	}
 
 	result, err := m.connector.Authenticate(ctx, federation.OIDCAuthenticateInput{
 		RedirectURI: input.RedirectURI,
+		ReturnTo:    input.ReturnTo,
 		State:       input.State,
 		Code:        input.Code,
 		Nonce:       input.Nonce,
@@ -45,10 +44,7 @@ func (m *Method) Authenticate(ctx context.Context, input pluginport.Authenticate
 		return nil, err
 	}
 	if result == nil {
-		return &pluginport.AuthenticateResult{
-			Handled:       false,
-			Authenticated: false,
-		}, nil
+		return nil, appauthn.ErrInvalidCredentials
 	}
 
 	return &pluginport.AuthenticateResult{

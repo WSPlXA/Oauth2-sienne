@@ -10,20 +10,32 @@ import (
 	"time"
 
 	"idp-server/internal/application/authn"
+	"idp-server/internal/application/authz"
 	appclient "idp-server/internal/application/client"
+	appclientauth "idp-server/internal/application/clientauth"
 	appconsent "idp-server/internal/application/consent"
 	"idp-server/internal/application/oidc"
 	appregister "idp-server/internal/application/register"
 	appsession "idp-server/internal/application/session"
-	"idp-server/internal/application/authz"
 	apptoken "idp-server/internal/application/token"
 	cacheRedis "idp-server/internal/infrastructure/cache/redis"
 	infracrypto "idp-server/internal/infrastructure/crypto"
+	infraexternal "idp-server/internal/infrastructure/external"
 	"idp-server/internal/infrastructure/persistence"
 	infrasecurity "idp-server/internal/infrastructure/security"
 	"idp-server/internal/infrastructure/storage"
 	interfacehttp "idp-server/internal/interfaces/http"
 	httpmiddleware "idp-server/internal/interfaces/http/middleware"
+	authnfederatedoidc "idp-server/internal/plugins/authn/federated_oidc"
+	authnpassword "idp-server/internal/plugins/authn/password"
+	clientauthbasic "idp-server/internal/plugins/client_auth/client_secret_basic"
+	clientauthpost "idp-server/internal/plugins/client_auth/client_secret_post"
+	clientauthnone "idp-server/internal/plugins/client_auth/none"
+	grantauthcode "idp-server/internal/plugins/grant/authorization_code"
+	grantclientcred "idp-server/internal/plugins/grant/client_credentials"
+	grantrefreshtoken "idp-server/internal/plugins/grant/refresh_token"
+	pluginregistry "idp-server/internal/plugins/registry"
+	cacheport "idp-server/internal/ports/cache"
 )
 
 type App struct {
@@ -60,12 +72,18 @@ func Wire() (*App, error) {
 	tokenRepo := persistence.NewTokenRepository(db)
 	sessionCache := cacheRedis.NewSessionCacheRepository(redisClient, keyBuilder)
 	tokenCache := cacheRedis.NewTokenCacheRepository(redisClient, keyBuilder)
+	replayProtectionRepo := cacheRedis.NewReplayProtectionRepository(redisClient, keyBuilder)
 	passwordVerifier := infrasecurity.NewPasswordVerifier()
 	authzService := authz.NewService(clientRepo, sessionRepo, authCodeRepo, consentRepo, 10*time.Minute)
 	consentService := appconsent.NewService(clientRepo, sessionRepo, sessionCache, consentRepo)
 	registerService := appregister.NewService(userRepo, passwordVerifier)
 	clientService := appclient.NewService(clientRepo, passwordVerifier)
-	authnService := authn.NewService(userRepo, sessionRepo, sessionCache, passwordVerifier, cfg.SessionTTL)
+	federatedOIDCProvider := buildFederatedOIDCProvider(cfg, replayProtectionRepo)
+	authnRegistry := pluginregistry.NewAuthnRegistry(
+		authnpassword.NewMethod(userRepo, passwordVerifier),
+		authnfederatedoidc.NewMethod(federatedOIDCProvider),
+	)
+	authnService := authn.NewService(userRepo, sessionRepo, sessionCache, authnRegistry, cfg.SessionTTL)
 	sessionService := appsession.NewService(sessionRepo, sessionCache)
 	rotationConfig := infracrypto.RotationConfig{
 		WorkingDir:    cfg.WorkDir,
@@ -98,49 +116,80 @@ func Wire() (*App, error) {
 		jwtService,
 		cfg.Issuer,
 	)
+	grantRegistry := pluginregistry.NewGrantRegistry(
+		grantauthcode.NewHandler(tokenService),
+		grantrefreshtoken.NewHandler(tokenService),
+		grantclientcred.NewHandler(tokenService),
+	)
+	clientAuthRegistry := pluginregistry.NewClientAuthRegistry(
+		clientauthbasic.NewAuthenticator(passwordVerifier),
+		clientauthpost.NewAuthenticator(passwordVerifier),
+		clientauthnone.NewAuthenticator(),
+	)
+	clientAuthenticator := appclientauth.NewService(clientRepo, clientAuthRegistry)
 	oidcService := oidc.NewService(userRepo, &jwtServiceAdapter{service: jwtService}, keyManagerAdapter{manager: keyManager}, cfg.Issuer)
 	authMiddleware := httpmiddleware.NewAuthMiddleware(&jwtMiddlewareAdapter{service: jwtService}, tokenCache, cfg.Issuer)
 
 	return &App{
-		Router: interfacehttp.NewRouter(authzService, consentService, registerService, clientService, clientService, authnService, sessionService, tokenService, oidcService, authMiddleware),
+		Router: interfacehttp.NewRouter(authzService, consentService, registerService, clientService, clientService, authnService, federatedOIDCProvider != nil, sessionService, clientAuthenticator, grantRegistry, oidcService, authMiddleware),
 	}, nil
 }
 
 type config struct {
-	MySQLDSN                 string
-	RedisAddr                string
-	RedisPassword            string
-	RedisDB                  int
-	RedisKeyPrefix           string
-	AppEnv                   string
-	SessionTTL               time.Duration
-	Issuer                   string
-	JWTKeyID                 string
-	WorkDir                  string
-	SigningKeyDir           string
-	SigningKeyBits          int
-	SigningKeyCheckInterval time.Duration
-	SigningKeyRotateBefore  time.Duration
-	SigningKeyRetireAfter   time.Duration
+	MySQLDSN                      string
+	RedisAddr                     string
+	RedisPassword                 string
+	RedisDB                       int
+	RedisKeyPrefix                string
+	AppEnv                        string
+	SessionTTL                    time.Duration
+	Issuer                        string
+	JWTKeyID                      string
+	WorkDir                       string
+	SigningKeyDir                 string
+	SigningKeyBits                int
+	SigningKeyCheckInterval       time.Duration
+	SigningKeyRotateBefore        time.Duration
+	SigningKeyRetireAfter         time.Duration
+	FederatedOIDCIssuer           string
+	FederatedOIDCClientID         string
+	FederatedOIDCClientSecret     string
+	FederatedOIDCRedirectURI      string
+	FederatedOIDCClientAuthMethod string
+	FederatedOIDCUsernameClaim    string
+	FederatedOIDCDisplayNameClaim string
+	FederatedOIDCEmailClaim       string
+	FederatedOIDCScopes           []string
+	FederatedOIDCStateTTL         time.Duration
 }
 
 func loadConfigFromEnv() (*config, error) {
 	cfg := &config{
-		MySQLDSN:                 strings.TrimSpace(os.Getenv("MYSQL_DSN")),
-		RedisAddr:                strings.TrimSpace(os.Getenv("REDIS_ADDR")),
-		RedisPassword:            strings.TrimSpace(os.Getenv("REDIS_PASSWORD")),
-		RedisDB:                  getEnvInt("REDIS_DB", 0),
-		RedisKeyPrefix:           getEnvString("REDIS_KEY_PREFIX", "idp"),
-		AppEnv:                   getEnvString("APP_ENV", "dev"),
-		SessionTTL:               getEnvDuration("SESSION_TTL", 8*time.Hour),
-		Issuer:                   getEnvString("ISSUER", "http://localhost:8080"),
-		JWTKeyID:                 getEnvString("JWT_KEY_ID", "kid-2026-01-rs256"),
-		WorkDir:                  getWorkingDir(),
-		SigningKeyDir:           getEnvString("SIGNING_KEY_DIR", "scripts/dev_keys"),
-		SigningKeyBits:          getEnvInt("SIGNING_KEY_BITS", 2048),
-		SigningKeyCheckInterval: getEnvDuration("SIGNING_KEY_CHECK_INTERVAL", 1*time.Hour),
-		SigningKeyRotateBefore:  getEnvDuration("SIGNING_KEY_ROTATE_BEFORE", 24*time.Hour),
-		SigningKeyRetireAfter:   getEnvDuration("SIGNING_KEY_RETIRE_AFTER", 24*time.Hour),
+		MySQLDSN:                      strings.TrimSpace(os.Getenv("MYSQL_DSN")),
+		RedisAddr:                     strings.TrimSpace(os.Getenv("REDIS_ADDR")),
+		RedisPassword:                 strings.TrimSpace(os.Getenv("REDIS_PASSWORD")),
+		RedisDB:                       getEnvInt("REDIS_DB", 0),
+		RedisKeyPrefix:                getEnvString("REDIS_KEY_PREFIX", "idp"),
+		AppEnv:                        getEnvString("APP_ENV", "dev"),
+		SessionTTL:                    getEnvDuration("SESSION_TTL", 8*time.Hour),
+		Issuer:                        getEnvString("ISSUER", "http://localhost:8080"),
+		JWTKeyID:                      getEnvString("JWT_KEY_ID", "kid-2026-01-rs256"),
+		WorkDir:                       getWorkingDir(),
+		SigningKeyDir:                 getEnvString("SIGNING_KEY_DIR", "scripts/dev_keys"),
+		SigningKeyBits:                getEnvInt("SIGNING_KEY_BITS", 2048),
+		SigningKeyCheckInterval:       getEnvDuration("SIGNING_KEY_CHECK_INTERVAL", 1*time.Hour),
+		SigningKeyRotateBefore:        getEnvDuration("SIGNING_KEY_ROTATE_BEFORE", 24*time.Hour),
+		SigningKeyRetireAfter:         getEnvDuration("SIGNING_KEY_RETIRE_AFTER", 24*time.Hour),
+		FederatedOIDCIssuer:           strings.TrimSpace(os.Getenv("FEDERATED_OIDC_ISSUER")),
+		FederatedOIDCClientID:         strings.TrimSpace(os.Getenv("FEDERATED_OIDC_CLIENT_ID")),
+		FederatedOIDCClientSecret:     os.Getenv("FEDERATED_OIDC_CLIENT_SECRET"),
+		FederatedOIDCRedirectURI:      strings.TrimSpace(os.Getenv("FEDERATED_OIDC_REDIRECT_URI")),
+		FederatedOIDCClientAuthMethod: getEnvString("FEDERATED_OIDC_CLIENT_AUTH_METHOD", "client_secret_basic"),
+		FederatedOIDCUsernameClaim:    getEnvString("FEDERATED_OIDC_USERNAME_CLAIM", "preferred_username"),
+		FederatedOIDCDisplayNameClaim: getEnvString("FEDERATED_OIDC_DISPLAY_NAME_CLAIM", "name"),
+		FederatedOIDCEmailClaim:       getEnvString("FEDERATED_OIDC_EMAIL_CLAIM", "email"),
+		FederatedOIDCScopes:           getEnvFields("FEDERATED_OIDC_SCOPES", []string{"openid", "profile", "email"}),
+		FederatedOIDCStateTTL:         getEnvDuration("FEDERATED_OIDC_STATE_TTL", 10*time.Minute),
 	}
 
 	if cfg.MySQLDSN == "" {
@@ -229,6 +278,41 @@ func getEnvDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return value
+}
+
+func getEnvFields(key string, fallback []string) []string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return append([]string(nil), fallback...)
+	}
+
+	fields := strings.Fields(raw)
+	if len(fields) == 0 {
+		return append([]string(nil), fallback...)
+	}
+	return fields
+}
+
+func buildFederatedOIDCProvider(cfg *config, replayCache cacheport.ReplayProtectionRepository) *infraexternal.OIDCProvider {
+	if cfg == nil {
+		return nil
+	}
+	if strings.TrimSpace(cfg.FederatedOIDCIssuer) == "" || strings.TrimSpace(cfg.FederatedOIDCClientID) == "" {
+		return nil
+	}
+
+	return infraexternal.NewOIDCProviderWithReplayCache(infraexternal.OIDCProviderConfig{
+		Issuer:           cfg.FederatedOIDCIssuer,
+		ClientID:         cfg.FederatedOIDCClientID,
+		ClientSecret:     cfg.FederatedOIDCClientSecret,
+		RedirectURI:      cfg.FederatedOIDCRedirectURI,
+		Scopes:           append([]string(nil), cfg.FederatedOIDCScopes...),
+		ClientAuthMethod: cfg.FederatedOIDCClientAuthMethod,
+		UsernameClaim:    cfg.FederatedOIDCUsernameClaim,
+		DisplayNameClaim: cfg.FederatedOIDCDisplayNameClaim,
+		EmailClaim:       cfg.FederatedOIDCEmailClaim,
+		StateTTL:         cfg.FederatedOIDCStateTTL,
+	}, replayCache)
 }
 
 type jwtServiceAdapter struct {

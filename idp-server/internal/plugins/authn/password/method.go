@@ -2,16 +2,26 @@ package password
 
 import (
 	"context"
+	"strings"
 
+	appauthn "idp-server/internal/application/authn"
 	pluginport "idp-server/internal/ports/plugin"
+	"idp-server/internal/ports/repository"
+	securityport "idp-server/internal/ports/security"
 )
 
 type Method struct {
-	name string
+	name      string
+	users     repository.UserRepository
+	passwords securityport.PasswordVerifier
 }
 
-func NewMethod() *Method {
-	return &Method{name: "password"}
+func NewMethod(users repository.UserRepository, passwords securityport.PasswordVerifier) *Method {
+	return &Method{
+		name:      "password",
+		users:     users,
+		passwords: passwords,
+	}
 }
 
 func (m *Method) Name() string {
@@ -23,10 +33,38 @@ func (m *Method) Type() pluginport.AuthnMethodType {
 }
 
 func (m *Method) Authenticate(ctx context.Context, input pluginport.AuthenticateInput) (*pluginport.AuthenticateResult, error) {
-	_ = ctx
+	username := strings.TrimSpace(input.Username)
+	if username == "" || input.Password == "" || m.users == nil || m.passwords == nil {
+		return nil, appauthn.ErrInvalidCredentials
+	}
+
+	user, err := m.users.FindByUsername(ctx, username)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, appauthn.ErrInvalidCredentials
+	}
+	if user.Status == "locked" {
+		return nil, appauthn.ErrUserLocked
+	}
+	if user.Status != "" && user.Status != "active" {
+		return nil, appauthn.ErrUserDisabled
+	}
+
+	if err := m.passwords.VerifyPassword(input.Password, user.PasswordHash); err != nil {
+		if _, incErr := m.users.IncrementFailedLogin(ctx, user.ID); incErr != nil {
+			return nil, incErr
+		}
+		return nil, appauthn.ErrInvalidCredentials
+	}
+
 	return &pluginport.AuthenticateResult{
-		Handled:       input.Username != "" || input.Password != "",
-		Authenticated: false,
-		Username:      input.Username,
+		Handled:       true,
+		Authenticated: true,
+		Subject:       user.UserUUID,
+		Username:      user.Username,
+		DisplayName:   user.DisplayName,
+		Email:         user.Email,
 	}, nil
 }
