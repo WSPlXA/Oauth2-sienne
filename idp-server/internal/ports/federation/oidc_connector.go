@@ -4,6 +4,7 @@ import "context"
 
 type OIDCAuthenticateInput struct {
 	RedirectURI string
+	ReturnTo    string
 	State       string
 	Code        string
 	Nonce       string

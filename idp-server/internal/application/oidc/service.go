@@ -29,7 +29,7 @@ type MetadataProvider interface {
 }
 
 type Service struct {
-	users repository.UserRepository
+	users  repository.UserRepository
 	tokens jwtValidator
 	keys   jwksProvider
 	issuer string
@@ -95,7 +95,7 @@ func (s *Service) Discovery(ctx context.Context) (*DiscoveryDocument, error) {
 		SubjectTypesSupported:             []string{"public"},
 		IDTokenSigningAlgValuesSupported:  []string{"RS256"},
 		ScopesSupported:                   []string{"openid", "profile", "email", "offline_access"},
-		TokenEndpointAuthMethodsSupported: []string{"client_secret_basic", "none"},
+		TokenEndpointAuthMethodsSupported: []string{"client_secret_basic", "client_secret_post", "none"},
 		GrantTypesSupported:               []string{"authorization_code", "refresh_token", "client_credentials"},
 		CodeChallengeMethodsSupported:     []string{"plain", "S256"},
 	}, nil

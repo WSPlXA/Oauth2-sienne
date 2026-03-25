@@ -1,25 +1,30 @@
 package handler
 
 import (
-	"encoding/base64"
 	"errors"
 	"log"
 	"net/http"
-	"strings"
 
+	appclientauth "idp-server/internal/application/clientauth"
 	apptoken "idp-server/internal/application/token"
 	"idp-server/internal/interfaces/http/dto"
+	pluginregistry "idp-server/internal/plugins/registry"
+	pluginport "idp-server/internal/ports/plugin"
 	pkgoauth2 "idp-server/pkg/oauth2"
 
 	"github.com/gin-gonic/gin"
 )
 
 type TokenHandler struct {
-	tokenService apptoken.Exchanger
+	clientAuthenticator appclientauth.Authenticator
+	grantRegistry       *pluginregistry.GrantRegistry
 }
 
-func NewTokenHandler(tokenService apptoken.Exchanger) *TokenHandler {
-	return &TokenHandler{tokenService: tokenService}
+func NewTokenHandler(clientAuthenticator appclientauth.Authenticator, grantRegistry *pluginregistry.GrantRegistry) *TokenHandler {
+	return &TokenHandler{
+		clientAuthenticator: clientAuthenticator,
+		grantRegistry:       grantRegistry,
+	}
 }
 
 func (h *TokenHandler) Handle(c *gin.Context) {
@@ -40,9 +45,54 @@ func (h *TokenHandler) Handle(c *gin.Context) {
 		return
 	}
 
-	clientID, clientSecret := resolveClientCredentials(c.GetHeader("Authorization"), req.ClientID, req.ClientSecret)
-	result, err := h.tokenService.Exchange(c.Request.Context(), apptoken.ExchangeInput{
-		GrantType:    pkgoauth2.GrantType(req.GrantType),
+	if h.clientAuthenticator == nil || h.grantRegistry == nil {
+		c.JSON(http.StatusInternalServerError, pkgoauth2.Error{
+			Code:        "server_error",
+			Description: "token handler is not configured",
+		})
+		return
+	}
+
+	clientAuth, err := h.clientAuthenticator.Authenticate(c.Request.Context(), appclientauth.AuthenticateInput{
+		AuthorizationHeader: c.GetHeader("Authorization"),
+		ClientID:            req.ClientID,
+		ClientSecret:        req.ClientSecret,
+	})
+	if err != nil {
+		log.Printf("client authentication failed grant_type=%s client_id=%s err=%v", req.GrantType, req.ClientID, err)
+		status := http.StatusBadRequest
+		oauthErr := pkgoauth2.Error{
+			Code:        "invalid_client",
+			Description: err.Error(),
+		}
+
+		switch {
+		case errors.Is(err, apptoken.ErrInvalidClient):
+			status = http.StatusUnauthorized
+		default:
+			status = http.StatusInternalServerError
+			oauthErr.Code = "server_error"
+			oauthErr.Description = "client authentication failed"
+		}
+
+		c.JSON(status, oauthErr)
+		return
+	}
+
+	clientID := clientAuth.ClientID
+	clientSecret := clientAuth.ClientSecret
+	grantType := pkgoauth2.GrantType(req.GrantType)
+	grantHandler, ok := h.grantRegistry.Get(grantType)
+	if !ok || grantHandler == nil {
+		c.JSON(http.StatusBadRequest, pkgoauth2.Error{
+			Code:        "unsupported_grant_type",
+			Description: "unsupported grant_type",
+		})
+		return
+	}
+
+	result, err := grantHandler.Exchange(c.Request.Context(), pluginport.ExchangeInput{
+		GrantType:    grantType,
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		Code:         req.Code,
@@ -90,19 +140,4 @@ func (h *TokenHandler) Handle(c *gin.Context) {
 		RefreshToken: result.RefreshToken,
 		IDToken:      result.IDToken,
 	})
-}
-
-func resolveClientCredentials(authorizationHeader, bodyClientID, bodyClientSecret string) (string, string) {
-	if strings.HasPrefix(authorizationHeader, "Basic ") {
-		payload := strings.TrimPrefix(authorizationHeader, "Basic ")
-		decoded, err := base64.StdEncoding.DecodeString(payload)
-		if err == nil {
-			parts := strings.SplitN(string(decoded), ":", 2)
-			if len(parts) == 2 {
-				return parts[0], parts[1]
-			}
-		}
-	}
-
-	return bodyClientID, bodyClientSecret
 }

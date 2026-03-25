@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Login</title>
+  <title>ログイン</title>
   <style>
     :root {
       color-scheme: light;
@@ -93,6 +93,10 @@
       display: grid;
       gap: 16px;
     }
+    .actions {
+      display: grid;
+      gap: 12px;
+    }
     .banner {
       margin-bottom: 18px;
       padding: 14px 16px;
@@ -147,6 +151,39 @@
       transform: translateY(-1px);
       box-shadow: 0 16px 34px rgba(15,118,110,0.28);
     }
+    .secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 15px 22px;
+      font-size: 16px;
+      text-decoration: none;
+      background: linear-gradient(135deg, #b45309, #92400e);
+      color: white;
+      box-shadow: 0 12px 28px rgba(180,83,9,0.24);
+      transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+    .secondary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 34px rgba(180,83,9,0.28);
+    }
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .divider::before,
+    .divider::after {
+      content: "";
+      height: 1px;
+      flex: 1;
+      background: rgba(36,60,72,0.12);
+    }
     .meta {
       margin-top: 12px;
       color: var(--muted);
@@ -172,11 +209,11 @@
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Identity Gateway</p>
-      <h1>Sign In To Continue</h1>
-      <p class="lead">Authenticate once, receive an <code>idp_session</code> cookie, and continue the OAuth authorization flow.</p>
+      <h1>認証を完了して先へ進む</h1>
+      <p class="lead">ログインに成功すると <code>idp_session</code> Cookie が発行され、そのまま OAuth 認可フローへ戻ります。</p>
       <div class="stack">
-        <div class="tip">This page is the browser-facing entry for local OAuth testing.</div>
-        <div class="tip">If you arrived from <code>/oauth2/authorize</code>, a successful sign-in will send you back automatically.</div>
+        <div class="tip">このページはブラウザ向けのログイン入口です。ローカル認証と外部 OpenID Connect の両方を扱えます。</div>
+        <div class="tip"><code>/oauth2/authorize</code> から来た場合は、ログイン完了後に元の認可要求へ自動で戻ります。</div>
       </div>
     </section>
     <section class="form-wrap">
@@ -184,21 +221,27 @@
       <div class="banner error">{{.Error}}</div>
       {{end}}
       {{if .Success}}
-      <div class="banner success">Login succeeded. Your session cookie is set and ready for the next OAuth step.</div>
+      <div class="banner success">ログインが完了しました。セッション Cookie を設定し、次の OAuth ステップへ進めます。</div>
       {{end}}
       <form method="post">
         <input type="hidden" name="return_to" value="{{.ReturnTo}}">
         <label>
-          Username
+          ユーザー名
           <input type="text" name="username" autocomplete="username" value="{{.Username}}" placeholder="alice" required>
         </label>
         <label>
-          Password
-          <input type="password" name="password" autocomplete="current-password" placeholder="Enter your password" required>
+          パスワード
+          <input type="password" name="password" autocomplete="current-password" placeholder="パスワードを入力" required>
         </label>
-        <button type="submit">Sign In</button>
+        <div class="actions">
+          <button type="submit">ローカルアカウントでログイン</button>
+          {{if .FederatedOIDCEnabled}}
+          <div class="divider">または</div>
+          <a class="secondary" href="/login?method=federated_oidc&amp;return_to={{.ReturnTo}}">OpenID Connect でログイン</a>
+          {{end}}
+        </div>
       </form>
-      <p class="meta">After login, the server writes session data to MySQL and Redis, sets <code>idp_session</code>, then redirects back to <code>return_to</code> when present.</p>
+      <p class="meta">ログイン後、サーバーはセッション情報を MySQL と Redis に保存し、<code>idp_session</code> を設定したうえで <code>return_to</code> があればそこへ戻します。</p>
     </section>
   </main>
 </body>

@@ -29,7 +29,7 @@ func TestLoginHandlerHandleGetHTML(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	router.GET("/login", NewLoginHandler(&stubAuthenticator{}).Handle)
+	router.GET("/login", NewLoginHandler(&stubAuthenticator{}, false).Handle)
 
 	req := httptest.NewRequest(http.MethodGet, "/login?return_to=%2Foauth2%2Fauthorize%3Fclient_id%3Ddemo", nil)
 	req.Header.Set("Accept", "text/html")
@@ -44,7 +44,7 @@ func TestLoginHandlerHandleGetHTML(t *testing.T) {
 		t.Fatalf("content type = %q, want text/html", got)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, "<title>Login</title>") {
+	if !strings.Contains(body, "<title>ログイン</title>") {
 		t.Fatalf("body did not contain login title: %s", body)
 	}
 	if !strings.Contains(body, `name="return_to" value="/oauth2/authorize?client_id=demo"`) {
@@ -64,7 +64,7 @@ func TestLoginHandlerHandlePostSuccessRedirects(t *testing.T) {
 		},
 	}
 	router := gin.New()
-	router.POST("/login", NewLoginHandler(service).Handle)
+	router.POST("/login", NewLoginHandler(service, false).Handle)
 
 	form := url.Values{}
 	form.Set("username", "alice")
@@ -96,7 +96,7 @@ func TestLoginHandlerHandlePostErrorRendersHTML(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	router.POST("/login", NewLoginHandler(&stubAuthenticator{err: authn.ErrInvalidCredentials}).Handle)
+	router.POST("/login", NewLoginHandler(&stubAuthenticator{err: authn.ErrInvalidCredentials}, false).Handle)
 
 	form := url.Values{}
 	form.Set("username", "alice")
@@ -117,10 +117,84 @@ func TestLoginHandlerHandlePostErrorRendersHTML(t *testing.T) {
 		t.Fatalf("content type = %q, want text/html", got)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, "invalid credentials") {
+	if !strings.Contains(body, "ユーザー名またはパスワードが正しくありません。") {
 		t.Fatalf("body did not contain error message: %s", body)
 	}
 	if !strings.Contains(body, `value="alice"`) {
 		t.Fatalf("body did not preserve username: %s", body)
+	}
+}
+
+func TestLoginHandlerHandleGetFederatedRedirect(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	router.GET("/login", NewLoginHandler(&stubAuthenticator{
+		result: &authn.AuthenticateResult{
+			RedirectURI: "https://issuer.example.com/authorize?state=demo",
+		},
+	}, true).Handle)
+
+	req := httptest.NewRequest(http.MethodGet, "/login?method=federated_oidc&return_to=%2Foauth2%2Fauthorize%3Fclient_id%3Ddemo", nil)
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusFound)
+	}
+	if got := recorder.Header().Get("Location"); got != "https://issuer.example.com/authorize?state=demo" {
+		t.Fatalf("location = %q", got)
+	}
+}
+
+func TestLoginHandlerHandleGetFederatedCallbackSetsSessionAndRedirects(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	router.GET("/login", NewLoginHandler(&stubAuthenticator{
+		result: &authn.AuthenticateResult{
+			SessionID:   "session-456",
+			UserID:      9,
+			Subject:     "subject-9",
+			RedirectURI: "/oauth2/authorize?client_id=demo",
+			ExpiresAt:   time.Now().Add(30 * time.Minute),
+		},
+	}, true).Handle)
+
+	req := httptest.NewRequest(http.MethodGet, "/login?code=code-123&state=state-123", nil)
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusFound)
+	}
+	if got := recorder.Header().Get("Location"); got != "/oauth2/authorize?client_id=demo" {
+		t.Fatalf("location = %q", got)
+	}
+	if got := recorder.Header().Get("Set-Cookie"); !strings.Contains(got, "idp_session=session-456") {
+		t.Fatalf("set-cookie = %q, want idp_session=session-456", got)
+	}
+}
+
+func TestLoginHandlerHandleGetHTMLShowsFederatedOIDCButton(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	router.GET("/login", NewLoginHandler(&stubAuthenticator{}, true).Handle)
+
+	req := httptest.NewRequest(http.MethodGet, "/login?return_to=%2Foauth2%2Fauthorize%3Fclient_id%3Ddemo", nil)
+	req.Header.Set("Accept", "text/html")
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+
+	body := recorder.Body.String()
+	if !strings.Contains(body, "OpenID Connect でログイン") {
+		t.Fatalf("body did not contain federated oidc button: %s", body)
+	}
+	if !strings.Contains(body, "/login?method=federated_oidc&amp;return_to=") {
+		t.Fatalf("body did not contain federated login url: %s", body)
 	}
 }
