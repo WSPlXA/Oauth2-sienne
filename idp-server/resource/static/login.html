@@ -3,262 +3,260 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ログイン</title>
+  <title>ログイン — Sienne IDP</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
     :root {
-      color-scheme: light;
-      --bg: #f4efe7;
-      --card: rgba(255, 251, 245, 0.96);
-      --ink: #182126;
-      --muted: #5e6a70;
-      --line: rgba(36, 60, 72, 0.14);
-      --accent: #0f766e;
-      --accent-2: #b45309;
-      --danger: #b91c1c;
-      --success: #166534;
+      --bg-cream: #fbfaf8;
+      --glass-bg: rgba(255, 255, 255, 0.7);
+      --glass-border: rgba(0, 0, 0, 0.06);
+      --glass-shadow: 0 10px 40px rgba(0, 0, 0, 0.04);
+      --accent-emerald: #059669;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --input-bg: #ffffff;
+      --danger: #dc2626;
+      --success: #16a34a;
     }
-    * { box-sizing: border-box; }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      margin: 0;
       min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 24px;
-      font-family: Georgia, "Times New Roman", serif;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top left, rgba(180,83,9,0.14), transparent 30%),
-        radial-gradient(circle at bottom right, rgba(15,118,110,0.14), transparent 32%),
-        linear-gradient(160deg, #f8f3ea, #efe8da 68%, #f9f6ef);
-    }
-    .shell {
-      width: min(100%, 940px);
-      display: grid;
-      grid-template-columns: 1.15fr 0.85fr;
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 24px;
-      overflow: hidden;
-      box-shadow: 0 28px 90px rgba(24,33,38,0.14);
-    }
-    .hero {
-      padding: 36px;
-      background:
-        linear-gradient(180deg, rgba(15,118,110,0.08), transparent 42%),
-        linear-gradient(140deg, rgba(180,83,9,0.10), rgba(15,118,110,0.04));
-      border-right: 1px solid var(--line);
-      display: grid;
-      gap: 18px;
-      align-content: start;
-    }
-    .eyebrow {
-      margin: 0;
-      font-size: 12px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--accent-2);
-    }
-    h1 {
-      margin: 0;
-      font-size: clamp(34px, 6vw, 54px);
-      line-height: 0.96;
-      font-weight: 600;
-    }
-    .lead {
-      margin: 0;
-      color: var(--muted);
-      font-size: 18px;
-      line-height: 1.65;
-      max-width: 24ch;
-    }
-    .stack {
-      display: grid;
-      gap: 12px;
-      margin-top: 8px;
-    }
-    .tip {
-      padding: 14px 16px;
-      border-radius: 16px;
-      background: rgba(255,255,255,0.58);
-      border: 1px solid rgba(36,60,72,0.10);
-      font-size: 15px;
-      line-height: 1.6;
-    }
-    .form-wrap {
-      padding: 36px 30px;
-      display: grid;
-      align-content: center;
-    }
-    form {
-      display: grid;
-      gap: 16px;
-    }
-    .oidc-form {
-      display: grid;
-    }
-    .actions {
-      display: grid;
-      gap: 12px;
-    }
-    .banner {
-      margin-bottom: 18px;
-      padding: 14px 16px;
-      border-radius: 16px;
-      font-size: 15px;
-      line-height: 1.55;
-    }
-    .banner.error {
-      background: rgba(185,28,28,0.08);
-      border: 1px solid rgba(185,28,28,0.18);
-      color: var(--danger);
-    }
-    .banner.success {
-      background: rgba(22,101,52,0.08);
-      border: 1px solid rgba(22,101,52,0.18);
-      color: var(--success);
-    }
-    label {
-      display: grid;
-      gap: 8px;
-      font-size: 13px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-    input {
-      width: 100%;
-      border: 1px solid rgba(36,60,72,0.18);
-      border-radius: 14px;
-      padding: 14px 16px;
-      font-size: 16px;
-      background: white;
-      color: var(--ink);
-    }
-    input:focus {
-      outline: 2px solid rgba(15,118,110,0.20);
-      border-color: rgba(15,118,110,0.45);
-    }
-    button {
-      appearance: none;
-      border: 0;
-      border-radius: 999px;
-      padding: 15px 22px;
-      font-size: 16px;
-      cursor: pointer;
-      background: linear-gradient(135deg, #0f766e, #115e59);
-      color: white;
-      box-shadow: 0 12px 28px rgba(15,118,110,0.24);
-      transition: transform 120ms ease, box-shadow 120ms ease;
-    }
-    button:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 16px 34px rgba(15,118,110,0.28);
-    }
-    .secondary {
-      appearance: none;
-      border: 0;
-      display: inline-flex;
+      display: flex;
       align-items: center;
       justify-content: center;
-      border-radius: 999px;
-      padding: 15px 22px;
-      font-size: 16px;
-      text-decoration: none;
-      background: linear-gradient(135deg, #b45309, #92400e);
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg-cream);
+      overflow: hidden;
+      color: var(--text-main);
+    }
+
+    /* Soft Mesh Background */
+    .mesh-background {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      z-index: -1;
+      background: var(--bg-cream);
+      background-image: 
+        radial-gradient(at 0% 0%, #fff 0px, transparent 50%),
+        radial-gradient(at 100% 0%, #f1efe9 0px, transparent 50%),
+        radial-gradient(at 100% 100%, #ffffff 0px, transparent 50%),
+        radial-gradient(at 0% 100%, #ece9e2 0px, transparent 50%);
+      filter: blur(40px);
+      animation: mesh-drift 15s ease-in-out infinite alternate;
+    }
+
+    @keyframes mesh-drift {
+      0% { transform: scale(1); }
+      100% { transform: scale(1.1); }
+    }
+
+    .container {
+      width: 100%;
+      max-width: 440px;
+      padding: 20px;
+    }
+
+    .card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      border-radius: 28px;
+      padding: 48px 40px;
+      box-shadow: var(--glass-shadow);
+      opacity: 0;
+      transform: translateY(30px);
+      animation: card-enter 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes card-enter {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .shield-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 16px;
+      color: var(--accent-emerald);
+      filter: drop-shadow(0 4px 10px rgba(5, 150, 105, 0.15));
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+      color: #1e293b;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .form-group { margin-bottom: 20px; }
+
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      margin-left: 4px;
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      background: var(--input-bg);
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 14px 16px;
+      color: var(--text-main);
+      font-size: 15px;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    input:focus {
+      border-color: var(--accent-emerald);
+      box-shadow: 0 0 0 4px rgba(5, 150, 105, 0.08);
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: var(--accent-emerald);
       color: white;
-      box-shadow: 0 12px 28px rgba(180,83,9,0.24);
-      transition: transform 120ms ease, box-shadow 120ms ease;
+      border: none;
+      border-radius: 14px;
+      padding: 16px;
+      font-size: 16px;
+      font-weight: 600;
       cursor: pointer;
+      transition: all 0.2s ease;
+      margin-top: 12px;
     }
-    .secondary:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 16px 34px rgba(180,83,9,0.28);
+
+    .btn-submit:hover {
+      filter: brightness(1.05);
+      transform: scale(1.01);
+      box-shadow: 0 10px 20px rgba(5, 150, 105, 0.2);
     }
+
     .divider {
       display: flex;
       align-items: center;
-      gap: 12px;
-      color: var(--muted);
-      font-size: 13px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      margin: 24px 0;
+      color: var(--text-muted);
+      font-size: 11px;
     }
-    .divider::before,
-    .divider::after {
+
+    .divider::before, .divider::after {
       content: "";
-      height: 1px;
       flex: 1;
-      background: rgba(36,60,72,0.12);
+      height: 1px;
+      background: #e2e8f0;
     }
-    .meta {
-      margin-top: 12px;
-      color: var(--muted);
+    .divider span { padding: 0 16px; }
+
+    .btn-secondary {
+      width: 100%;
+      background: #f8fafc;
+      color: var(--text-main);
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 14px;
       font-size: 14px;
-      line-height: 1.7;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.2s ease;
+      text-decoration: none;
     }
-    code {
-      font-family: "Courier New", monospace;
-      font-size: 0.95em;
+
+    .banner {
+      padding: 12px 16px;
+      border-radius: 14px;
+      font-size: 13px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
-    @media (max-width: 820px) {
-      .shell {
-        grid-template-columns: 1fr;
-      }
-      .hero {
-        border-right: 0;
-        border-bottom: 1px solid var(--line);
-      }
-    }
+
+    .banner-error { background: #fef2f2; border: 1px solid #fee2e2; color: var(--danger); }
+    .banner-success { background: #f0fdf4; border: 1px solid #dcfce7; color: var(--success); }
+
+    .footer { text-align: center; margin-top: 40px; color: var(--text-muted); font-size: 11px; }
+
+    .stagger { opacity: 0; transform: translateY(10px); animation: stagger-in 0.5s ease-out forwards; }
+    @keyframes stagger-in { to { opacity: 1; transform: translateY(0); } }
+    .s1 { animation-delay: 0.3s; } .s2 { animation-delay: 0.4s; } .s3 { animation-delay: 0.5s; } .s4 { animation-delay: 0.6s; }
   </style>
 </head>
 <body>
-  <main class="shell">
-    <section class="hero">
-      <p class="eyebrow">Identity Gateway</p>
-      <h1>認証を完了して先へ進む</h1>
-      <p class="lead">ログインに成功すると <code>idp_session</code> Cookie が発行され、そのまま OAuth 認可フローへ戻ります。</p>
-      <div class="stack">
-        <div class="tip">このページはブラウザ向けのログイン入口です。ローカル認証と外部 OpenID Connect の両方を扱えます。</div>
-        <div class="tip"><code>/oauth2/authorize</code> から来た場合は、ログイン完了後に元の認可要求へ自動で戻ります。</div>
+  <div class="mesh-background"></div>
+  <main class="container">
+    <div class="card">
+      <div class="header">
+        <div class="shield-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </div>
+        <h1>ログイン</h1>
+        <p class="subtitle">Sienne 認証サービスへようこそ</p>
       </div>
-    </section>
-    <section class="form-wrap">
+
       {{if .Error}}
-      <div class="banner error">{{.Error}}</div>
+      <div class="banner banner-error stagger s1">
+        <span>{{.Error}}</span>
+      </div>
       {{end}}
-      {{if .Success}}
-      <div class="banner success">ログインが完了しました。セッション Cookie を設定し、次の OAuth ステップへ進めます。</div>
-      {{end}}
+
       <form method="post">
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
         <input type="hidden" name="return_to" value="{{.ReturnTo}}">
-        <label>
-          ユーザー名
-          <input type="text" name="username" autocomplete="username" value="{{.Username}}" placeholder="alice" required>
-        </label>
-        <label>
-          パスワード
-          <input type="password" name="password" autocomplete="current-password" placeholder="パスワードを入力" required>
-        </label>
-        <div class="actions">
-          <button type="submit">ローカルアカウントでログイン</button>
-          {{if .FederatedOIDCEnabled}}
-          <div class="divider">または</div>
-          <a class="secondary" href="/login?method=federated_oidc&amp;return_to={{.ReturnTo}}">OpenID Connect でログイン</a>
-          {{end}}
+        <div class="form-group stagger s2">
+          <label for="username">ユーザー名</label>
+          <input type="text" id="username" name="username" value="{{.Username}}" placeholder="username" required>
+        </div>
+        <div class="form-group stagger s3">
+          <label for="password">パスワード</label>
+          <input type="password" id="password" name="password" placeholder="••••••••" required>
+        </div>
+        <div class="stagger s4">
+          <button type="submit" class="btn-submit">サインイン</button>
         </div>
       </form>
+
       {{if .FederatedOIDCEnabled}}
-      <div class="divider">または</div>
-      <form class="oidc-form" method="post">
-        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-        <input type="hidden" name="return_to" value="{{.ReturnTo}}">
-        <input type="hidden" name="method" value="federated_oidc">
-        <button class="secondary" type="submit">OpenID Connect でログイン</button>
-      </form>
+      <div class="divider stagger s4"><span>または</span></div>
+      <div class="stagger s4">
+        <form method="post">
+          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+          <input type="hidden" name="return_to" value="{{.ReturnTo}}">
+          <input type="hidden" name="method" value="federated_oidc">
+          <button type="submit" class="btn-secondary">OpenID Connect でサインイン</button>
+        </form>
+      </div>
       {{end}}
-      <p class="meta">ログイン後、サーバーはセッション情報を MySQL と Redis に保存し、<code>idp_session</code> を設定したうえで <code>return_to</code> があればそこへ戻します。</p>
-    </section>
+
+      <div class="footer stagger s4">&copy; 2026 Sienne Identity System</div>
+    </div>
   </main>
 </body>
 </html>
