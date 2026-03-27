@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -40,21 +41,25 @@ func (h *EndSessionHandler) Get(c *gin.Context) {
 		State:                 c.Query("state"),
 	}
 
-	if _, err := h.validateRedirect(c, req); err != nil {
+	validatedRedirect, err := h.validateRedirect(c, req)
+	if err != nil {
+		log.Printf("end_session get_rejected ip=%s client_id=%q post_logout_redirect_uri=%q state_present=%t err=%v", c.ClientIP(), strings.TrimSpace(req.ClientID), strings.TrimSpace(req.PostLogoutRedirectURI), strings.TrimSpace(req.State) != "", err)
 		h.writeRequestError(c, http.StatusBadRequest, req, err)
 		return
 	}
 
 	csrfToken, err := ensureCSRFToken(c)
 	if err != nil {
+		log.Printf("end_session csrf_issue_failed method=GET ip=%s err=%v", c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate csrf token"})
 		return
 	}
+	log.Printf("end_session get_ready ip=%s client_id=%q post_logout_redirect_uri=%q state_present=%t", c.ClientIP(), strings.TrimSpace(req.ClientID), validatedRedirect, strings.TrimSpace(req.State) != "")
 
 	if wantsHTML(c.GetHeader("Accept")) {
 		h.renderPage(c, http.StatusOK, endSessionPageData{
 			ClientID:              strings.TrimSpace(req.ClientID),
-			PostLogoutRedirectURI: strings.TrimSpace(req.PostLogoutRedirectURI),
+			PostLogoutRedirectURI: validatedRedirect,
 			State:                 strings.TrimSpace(req.State),
 			CSRFToken:             csrfToken,
 		})
@@ -75,15 +80,18 @@ func (h *EndSessionHandler) Get(c *gin.Context) {
 func (h *EndSessionHandler) Post(c *gin.Context) {
 	var req dto.EndSessionRequest
 	if err := c.ShouldBind(&req); err != nil {
+		log.Printf("end_session bind_failed method=POST ip=%s err=%v", c.ClientIP(), err)
 		h.writeRequestError(c, http.StatusBadRequest, req, errInvalidEndSessionRequest)
 		return
 	}
 	validatedRedirect, err := h.validateRedirect(c, req)
 	if err != nil {
+		log.Printf("end_session post_rejected ip=%s client_id=%q post_logout_redirect_uri=%q state_present=%t err=%v", c.ClientIP(), strings.TrimSpace(req.ClientID), strings.TrimSpace(req.PostLogoutRedirectURI), strings.TrimSpace(req.State) != "", err)
 		h.writeRequestError(c, http.StatusBadRequest, req, err)
 		return
 	}
 	if err := validateCSRFToken(c, req.CSRFToken); err != nil {
+		log.Printf("end_session csrf_validation_failed method=POST ip=%s client_id=%q", c.ClientIP(), strings.TrimSpace(req.ClientID))
 		if wantsHTML(c.GetHeader("Accept")) {
 			h.renderPage(c, http.StatusForbidden, endSessionPageData{
 				ClientID:              strings.TrimSpace(req.ClientID),
@@ -100,6 +108,7 @@ func (h *EndSessionHandler) Post(c *gin.Context) {
 	sessionID, _ := c.Cookie("idp_session")
 	if h.service != nil {
 		if _, err := h.service.Logout(c.Request.Context(), appsession.LogoutInput{SessionID: sessionID}); err != nil {
+			log.Printf("end_session logout_failed ip=%s client_id=%q session_present=%t err=%v", c.ClientIP(), strings.TrimSpace(req.ClientID), sessionID != "", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "logout failed"})
 			return
 		}
@@ -108,15 +117,19 @@ func (h *EndSessionHandler) Post(c *gin.Context) {
 	c.SetCookie("idp_session", "", -1, "/", "", false, true)
 
 	if validatedRedirect != "" {
-		c.Redirect(http.StatusFound, buildPostLogoutRedirect(validatedRedirect, strings.TrimSpace(req.State)))
+		redirectTarget := buildPostLogoutRedirect(validatedRedirect, strings.TrimSpace(req.State))
+		log.Printf("end_session logout_succeeded ip=%s client_id=%q session_present=%t redirect_uri=%q", c.ClientIP(), strings.TrimSpace(req.ClientID), sessionID != "", redirectTarget)
+		c.Redirect(http.StatusFound, redirectTarget)
 		return
 	}
 
 	if wantsHTML(c.GetHeader("Accept")) {
+		log.Printf("end_session logout_succeeded ip=%s client_id=%q session_present=%t redirect_uri=%q", c.ClientIP(), strings.TrimSpace(req.ClientID), sessionID != "", "/login")
 		c.Redirect(http.StatusFound, "/login")
 		return
 	}
 
+	log.Printf("end_session logout_succeeded ip=%s client_id=%q session_present=%t redirect_uri=%q", c.ClientIP(), strings.TrimSpace(req.ClientID), sessionID != "", "")
 	c.JSON(http.StatusOK, gin.H{"logged_out": true})
 }
 
@@ -165,6 +178,7 @@ func (h *EndSessionHandler) renderPage(c *gin.Context, status int, data endSessi
 	if data.CSRFToken == "" {
 		csrfToken, err := ensureCSRFToken(c)
 		if err != nil {
+			log.Printf("end_session render_failed ip=%s err=%v", c.ClientIP(), err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate csrf token"})
 			return
 		}
