@@ -26,6 +26,8 @@ DROP TABLE IF EXISTS oauth_authorization_codes;
 
 DROP TABLE IF EXISTS login_sessions;
 
+DROP TABLE IF EXISTS user_totp_credentials;
+
 DROP TABLE IF EXISTS oauth_client_scopes;
 
 DROP TABLE IF EXISTS oauth_client_auth_methods;
@@ -87,6 +89,21 @@ CREATE TABLE login_sessions (
     KEY idx_login_sessions_expires_at (expires_at),
     CONSTRAINT fk_login_sessions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'browser login sessions';
+
+-- =========================================================
+-- 2.1 User TOTP credentials
+-- =========================================================
+CREATE TABLE user_totp_credentials (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    secret VARCHAR(128) NOT NULL,
+    enabled_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_totp_credentials_user_id (user_id),
+    CONSTRAINT fk_user_totp_credentials_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'user totp mfa credentials';
 
 -- =========================================================
 -- 3. OAuth clients

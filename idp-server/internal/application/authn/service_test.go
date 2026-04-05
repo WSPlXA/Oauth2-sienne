@@ -241,8 +241,12 @@ func TestAuthenticatePasswordRejectsRateLimitedIPBeforeLookup(t *testing.T) {
 		&stubAuthnSessionRepository{},
 		&stubAuthnSessionCache{},
 		&stubAuthnRateLimitRepository{ipFailures: map[string]int64{"203.0.113.10": 20}},
+		nil,
 		pluginregistry.NewAuthnRegistry(&stubPasswordAuthnMethod{users: userRepo, passwords: &stubAuthnPasswordVerifier{}}),
+		nil,
+		nil,
 		8*time.Hour,
+		5*time.Minute,
 		RateLimitPolicy{FailureWindow: 15 * time.Minute, MaxFailuresPerIP: 20},
 	)
 
@@ -287,8 +291,12 @@ func TestAuthenticatePasswordSuccessfulPathUsesSingleUserLookup(t *testing.T) {
 		sessionRepo,
 		sessionCache,
 		rateLimits,
+		nil,
 		pluginregistry.NewAuthnRegistry(&stubPasswordAuthnMethod{users: userRepo, passwords: &stubAuthnPasswordVerifier{}}),
+		nil,
+		nil,
 		8*time.Hour,
+		5*time.Minute,
 		DefaultRateLimitPolicy(),
 	)
 	service.now = func() time.Time { return now }
@@ -347,8 +355,12 @@ func TestAuthenticatePasswordFailureLocksUserAtThreshold(t *testing.T) {
 		&stubAuthnSessionRepository{},
 		&stubAuthnSessionCache{},
 		rateLimits,
+		nil,
 		pluginregistry.NewAuthnRegistry(&stubPasswordAuthnMethod{users: userRepo, passwords: &stubAuthnPasswordVerifier{}}),
+		nil,
+		nil,
 		8*time.Hour,
+		5*time.Minute,
 		RateLimitPolicy{
 			FailureWindow:      15 * time.Minute,
 			MaxFailuresPerIP:   20,

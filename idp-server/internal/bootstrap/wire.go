@@ -15,6 +15,7 @@ import (
 	appclientauth "idp-server/internal/application/clientauth"
 	appconsent "idp-server/internal/application/consent"
 	appdevice "idp-server/internal/application/device"
+	appmfa "idp-server/internal/application/mfa"
 	"idp-server/internal/application/oidc"
 	appregister "idp-server/internal/application/register"
 	appsession "idp-server/internal/application/session"
@@ -74,12 +75,15 @@ func Wire() (*App, error) {
 	consentRepo := persistence.NewConsentRepository(db)
 	jwkRepo := persistence.NewJWKKeyRepository(db)
 	tokenRepo := persistence.NewTokenRepository(db)
+	totpRepo := persistence.NewTOTPRepository(db)
 	sessionCache := cacheRedis.NewSessionCacheRepository(redisClient, keyBuilder)
 	tokenCache := cacheRedis.NewTokenCacheRepository(redisClient, keyBuilder)
 	deviceCodeRepo := cacheRedis.NewDeviceCodeRepository(redisClient, keyBuilder)
+	mfaCache := cacheRedis.NewMFARepository(redisClient, keyBuilder)
 	replayProtectionRepo := cacheRedis.NewReplayProtectionRepository(redisClient, keyBuilder)
 	rateLimitRepo := cacheRedis.NewRateLimitRepository(redisClient, keyBuilder)
 	passwordVerifier := infrasecurity.NewPasswordVerifier()
+	totpProvider := infrasecurity.NewTOTPProvider()
 	authzService := authz.NewService(clientRepo, sessionRepo, authCodeRepo, consentRepo, 10*time.Minute)
 	consentService := appconsent.NewService(clientRepo, sessionRepo, sessionCache, consentRepo)
 	registerService := appregister.NewService(userRepo, passwordVerifier)
@@ -89,7 +93,7 @@ func Wire() (*App, error) {
 		authnpassword.NewMethod(userRepo, passwordVerifier),
 		authnfederatedoidc.NewMethod(federatedOIDCProvider),
 	)
-	authnService := authn.NewService(userRepo, sessionRepo, sessionCache, rateLimitRepo, authnRegistry, cfg.SessionTTL, authn.RateLimitPolicy{
+	authnService := authn.NewService(userRepo, sessionRepo, sessionCache, rateLimitRepo, mfaCache, authnRegistry, totpRepo, totpProvider, cfg.SessionTTL, 5*time.Minute, authn.RateLimitPolicy{
 		FailureWindow:      cfg.LoginFailureWindow,
 		MaxFailuresPerIP:   int64(cfg.LoginMaxFailuresPerIP),
 		MaxFailuresPerUser: int64(cfg.LoginMaxFailuresPerUser),
@@ -97,6 +101,7 @@ func Wire() (*App, error) {
 		UserLockTTL:        cfg.LoginUserLockTTL,
 	})
 	sessionService := appsession.NewService(sessionRepo, sessionCache)
+	mfaService := appmfa.NewService(sessionRepo, sessionCache, userRepo, totpRepo, mfaCache, totpProvider, cfg.Issuer, 10*time.Minute)
 	rotationConfig := infracrypto.RotationConfig{
 		WorkingDir:    cfg.WorkDir,
 		StorageDir:    cfg.SigningKeyDir,
@@ -147,7 +152,7 @@ func Wire() (*App, error) {
 	authMiddleware := httpmiddleware.NewAuthMiddleware(&jwtMiddlewareAdapter{service: jwtService}, tokenCache, cfg.Issuer)
 
 	return &App{
-		Router: interfacehttp.NewRouter(authzService, consentService, registerService, clientService, clientService, clientService, clientService, authnService, federatedOIDCProvider != nil, sessionService, clientAuthenticator, grantRegistry, deviceService, oidcService, authMiddleware),
+		Router: interfacehttp.NewRouter(authzService, consentService, registerService, clientService, clientService, clientService, clientService, authnService, federatedOIDCProvider != nil, sessionService, clientAuthenticator, grantRegistry, deviceService, mfaService, oidcService, authMiddleware),
 	}, nil
 }
 

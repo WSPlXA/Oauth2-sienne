@@ -25,6 +25,10 @@ func (s *stubAuthenticator) Authenticate(_ context.Context, input authn.Authenti
 	return s.result, s.err
 }
 
+func (s *stubAuthenticator) VerifyTOTP(_ context.Context, _ authn.VerifyTOTPInput) (*authn.AuthenticateResult, error) {
+	return s.result, s.err
+}
+
 func TestLoginHandlerHandleGetHTML(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

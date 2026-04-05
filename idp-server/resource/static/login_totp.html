@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TOTP Verification</title>
+</head>
+<body>
+  <h1>TOTP Verification</h1>
+  {{if .Error}}<p>{{.Error}}</p>{{end}}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <label for="code">Authenticator code</label>
+    <input id="code" name="code" autocomplete="one-time-code">
+    <button type="submit">Verify</button>
+  </form>
+</body>
+</html>

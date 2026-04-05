@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TOTP Setup</title>
+</head>
+<body>
+  <h1>TOTP Setup</h1>
+  {{if .Error}}<p>{{.Error}}</p>{{end}}
+  {{if .AlreadyEnabled}}
+    <p>TOTP is already enabled for this account.</p>
+  {{else if .Success}}
+    <p>TOTP has been enabled successfully.</p>
+  {{else}}
+    <p>Secret: <code>{{.Secret}}</code></p>
+    <p>Provisioning URI: <code>{{.ProvisioningURI}}</code></p>
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <label for="code">Authenticator code</label>
+      <input id="code" name="code" autocomplete="one-time-code">
+      <button type="submit">Enable TOTP</button>
+    </form>
+  {{end}}
+</body>
+</html>

@@ -11,6 +11,9 @@ var (
 	ErrUserDisabled       = errors.New("user is disabled")
 	ErrRateLimited        = errors.New("rate limit exceeded")
 	ErrUnsupportedMethod  = errors.New("unsupported authentication method")
+	ErrMFARequired        = errors.New("mfa required")
+	ErrInvalidTOTPCode    = errors.New("invalid totp code")
+	ErrMFAChallengeExpired = errors.New("mfa challenge expired")
 )
 
 type RateLimitPolicy struct {
@@ -49,6 +52,16 @@ type AuthenticateResult struct {
 	UserID          int64
 	Subject         string
 	RedirectURI     string
+	ReturnTo        string
+	MFARequired     bool
+	MFAChallengeID  string
 	AuthenticatedAt time.Time
 	ExpiresAt       time.Time
+}
+
+type VerifyTOTPInput struct {
+	ChallengeID string
+	Code        string
+	IPAddress   string
+	UserAgent   string
 }

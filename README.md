@@ -175,7 +175,9 @@ make down
 | `GET` | `/healthz` | 健康检查 |
 | `GET` `POST` | `/register` | 注册；`POST` 需要 CSRF |
 | `GET` `POST` | `/login` | 登录或发起 Federated OIDC；`POST` 需要 CSRF |
+| `GET` `POST` | `/login/totp` | 登录第二步 TOTP 校验 |
 | `POST` | `/logout` | 登出当前浏览器 session |
+| `GET` `POST` | `/mfa/totp/setup` | 已登录用户绑定 TOTP |
 | `GET` `POST` | `/consent` | 查看/提交授权确认；`POST` 需要 CSRF |
 | `GET` `POST` | `/device` | 输入 `user_code` 并确认设备授权 |
 | `GET` | `/oauth2/authorize` | Authorization Code 入口 |

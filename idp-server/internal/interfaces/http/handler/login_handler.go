@@ -132,6 +132,8 @@ func (h *LoginHandler) handleAuthenticate(c *gin.Context, req dto.LoginRequest) 
 		log.Printf("login authenticate_failed method=%q ip=%s username=%q err=%v", req.Method, c.ClientIP(), req.Username, err)
 		status := http.StatusUnauthorized
 		switch {
+		case errors.Is(err, authn.ErrMFARequired):
+			status = http.StatusUnauthorized
 		case errors.Is(err, authn.ErrUnsupportedMethod):
 			status = http.StatusBadRequest
 		case errors.Is(err, authn.ErrRateLimited):
@@ -144,6 +146,22 @@ func (h *LoginHandler) handleAuthenticate(c *gin.Context, req dto.LoginRequest) 
 			status = http.StatusUnauthorized
 		default:
 			status = http.StatusInternalServerError
+		}
+
+		if errors.Is(err, authn.ErrMFARequired) && result != nil && result.MFAChallengeID != "" {
+			c.SetCookie(mfaChallengeCookieName, result.MFAChallengeID, 300, "/", "", false, true)
+			if wantsHTML(c.GetHeader("Accept")) {
+				c.Redirect(http.StatusFound, "/login/totp")
+				return
+			}
+			c.JSON(status, gin.H{
+				"error":          err.Error(),
+				"mfa_required":   true,
+				"challenge_id":   result.MFAChallengeID,
+				"redirect_uri":   "/login/totp",
+				"return_to":      req.ReturnTo,
+			})
+			return
 		}
 
 		if wantsHTML(c.GetHeader("Accept")) {
