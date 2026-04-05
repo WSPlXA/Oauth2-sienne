@@ -96,7 +96,7 @@ func TestExchangeClientCredentials(t *testing.T) {
 		},
 	}
 	tokenRepo := &stubTokenRepository{}
-	service := NewService(nil, clientRepo, nil, tokenRepo, nil, &stubTokenPasswordVerifier{}, &stubSigner{}, "http://localhost:8080")
+	service := NewService(nil, clientRepo, nil, tokenRepo, nil, nil, &stubTokenPasswordVerifier{}, &stubSigner{}, "http://localhost:8080")
 
 	result, err := service.Exchange(context.Background(), ExchangeInput{
 		GrantType:    pkgoauth2.GrantTypeClientCredentials,

@@ -14,6 +14,7 @@ import (
 	appclient "idp-server/internal/application/client"
 	appclientauth "idp-server/internal/application/clientauth"
 	appconsent "idp-server/internal/application/consent"
+	appdevice "idp-server/internal/application/device"
 	"idp-server/internal/application/oidc"
 	appregister "idp-server/internal/application/register"
 	appsession "idp-server/internal/application/session"
@@ -33,6 +34,8 @@ import (
 	clientauthnone "idp-server/internal/plugins/client_auth/none"
 	grantauthcode "idp-server/internal/plugins/grant/authorization_code"
 	grantclientcred "idp-server/internal/plugins/grant/client_credentials"
+	grantdevicecode "idp-server/internal/plugins/grant/device_code"
+	grantpassword "idp-server/internal/plugins/grant/password"
 	grantrefreshtoken "idp-server/internal/plugins/grant/refresh_token"
 	pluginregistry "idp-server/internal/plugins/registry"
 	cacheport "idp-server/internal/ports/cache"
@@ -43,6 +46,7 @@ type App struct {
 }
 
 func Wire() (*App, error) {
+	// Load configuration from environment variablesand set defaults
 	cfg, err := loadConfigFromEnv()
 	if err != nil {
 		return nil, err
@@ -72,6 +76,7 @@ func Wire() (*App, error) {
 	tokenRepo := persistence.NewTokenRepository(db)
 	sessionCache := cacheRedis.NewSessionCacheRepository(redisClient, keyBuilder)
 	tokenCache := cacheRedis.NewTokenCacheRepository(redisClient, keyBuilder)
+	deviceCodeRepo := cacheRedis.NewDeviceCodeRepository(redisClient, keyBuilder)
 	replayProtectionRepo := cacheRedis.NewReplayProtectionRepository(redisClient, keyBuilder)
 	rateLimitRepo := cacheRedis.NewRateLimitRepository(redisClient, keyBuilder)
 	passwordVerifier := infrasecurity.NewPasswordVerifier()
@@ -119,14 +124,18 @@ func Wire() (*App, error) {
 		userRepo,
 		tokenRepo,
 		tokenCache,
+		deviceCodeRepo,
 		passwordVerifier,
 		jwtService,
 		cfg.Issuer,
 	)
+	deviceService := appdevice.NewService(clientRepo, deviceCodeRepo, sessionRepo, sessionCache, 10*time.Minute, 5*time.Second)
 	grantRegistry := pluginregistry.NewGrantRegistry(
 		grantauthcode.NewHandler(tokenService),
 		grantrefreshtoken.NewHandler(tokenService),
 		grantclientcred.NewHandler(tokenService),
+		grantpassword.NewHandler(tokenService),
+		grantdevicecode.NewHandler(tokenService),
 	)
 	clientAuthRegistry := pluginregistry.NewClientAuthRegistry(
 		clientauthbasic.NewAuthenticator(passwordVerifier),
@@ -138,7 +147,7 @@ func Wire() (*App, error) {
 	authMiddleware := httpmiddleware.NewAuthMiddleware(&jwtMiddlewareAdapter{service: jwtService}, tokenCache, cfg.Issuer)
 
 	return &App{
-		Router: interfacehttp.NewRouter(authzService, consentService, registerService, clientService, clientService, clientService, clientService, authnService, federatedOIDCProvider != nil, sessionService, clientAuthenticator, grantRegistry, oidcService, authMiddleware),
+		Router: interfacehttp.NewRouter(authzService, consentService, registerService, clientService, clientService, clientService, clientService, authnService, federatedOIDCProvider != nil, sessionService, clientAuthenticator, grantRegistry, deviceService, oidcService, authMiddleware),
 	}, nil
 }
 

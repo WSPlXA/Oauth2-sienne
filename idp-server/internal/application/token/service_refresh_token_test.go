@@ -64,7 +64,7 @@ func TestExchangeRefreshTokenRejectsRevokedTokenFromCache(t *testing.T) {
 		},
 	}
 	tokenRepo := &stubTokenRepository{}
-	service := NewService(nil, clientRepo, nil, tokenRepo, &stubTokenCache{refreshRevoked: true}, &stubTokenPasswordVerifier{}, &stubSigner{}, "http://localhost:8080")
+	service := NewService(nil, clientRepo, nil, tokenRepo, &stubTokenCache{refreshRevoked: true}, nil, &stubTokenPasswordVerifier{}, &stubSigner{}, "http://localhost:8080")
 
 	_, err := service.Exchange(context.Background(), ExchangeInput{
 		GrantType:    pkgoauth2.GrantTypeRefreshToken,

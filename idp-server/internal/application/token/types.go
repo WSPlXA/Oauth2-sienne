@@ -14,6 +14,11 @@ var (
 	ErrInvalidRedirectURI   = errors.New("invalid redirect uri")
 	ErrInvalidCodeVerifier  = errors.New("invalid code verifier")
 	ErrInvalidRefreshToken  = errors.New("invalid refresh token")
+	ErrInvalidUserCredentials = errors.New("invalid user credentials")
+	ErrInvalidDeviceCode      = errors.New("invalid device code")
+	ErrAuthorizationPending   = errors.New("authorization pending")
+	ErrSlowDown               = errors.New("slow down")
+	ErrAccessDenied           = errors.New("access denied")
 )
 
 type ExchangeInput struct {
@@ -24,6 +29,9 @@ type ExchangeInput struct {
 	RedirectURI  string
 	CodeVerifier string
 	RefreshToken string
+	DeviceCode   string
+	Username     string
+	Password     string
 	Scopes       []string
 }
 

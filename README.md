@@ -150,6 +150,12 @@ make down
 ### OAuth Client
 
 - `web-client / secret123`
+- `mobile-public-client / (public client, no secret)`
+- `service-client / service123`
+- `legacy-client / service123`
+- `tv-client / service123`
+
+- `web-client / secret123`
 - `mobile-public-client / 无 client secret`
 - `service-client / service123`
 
@@ -171,8 +177,10 @@ make down
 | `GET` `POST` | `/login` | 登录或发起 Federated OIDC；`POST` 需要 CSRF |
 | `POST` | `/logout` | 登出当前浏览器 session |
 | `GET` `POST` | `/consent` | 查看/提交授权确认；`POST` 需要 CSRF |
+| `GET` `POST` | `/device` | 输入 `user_code` 并确认设备授权 |
 | `GET` | `/oauth2/authorize` | Authorization Code 入口 |
-| `POST` | `/oauth2/token` | `authorization_code` / `refresh_token` / `client_credentials` |
+| `POST` | `/oauth2/token` | `authorization_code` / `refresh_token` / `client_credentials` / `password` / `device_code` |
+| `POST` | `/oauth2/device/authorize` | 申请 Device Code 与 User Code |
 | `POST` | `/oauth2/introspect` | 访问令牌自省 |
 | `GET` | `/oauth2/userinfo` | OIDC UserInfo |
 | `GET` | `/.well-known/openid-configuration` | OIDC Discovery |
@@ -217,6 +225,41 @@ curl -i \
   -H 'Content-Type: application/x-www-form-urlencoded' \
   -d 'grant_type=client_credentials' \
   -d 'scope=internal.api.read'
+```
+
+### 用 `password grant` 直接换 token
+
+```bash
+curl -i \
+  -X POST http://localhost:8080/oauth2/token \
+  -u legacy-client:service123 \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=password' \
+  -d 'username=alice' \
+  -d 'password=alice123' \
+  -d 'scope=openid offline_access'
+```
+
+### 用 `device_code` 发起设备授权
+
+```bash
+curl -i \
+  -X POST http://localhost:8080/oauth2/device/authorize \
+  -u tv-client:tvsecret \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'client_id=tv-client' \
+  -d 'scope=openid profile'
+```
+
+拿到响应里的 `user_code` 后，浏览器访问 `/device` 输入并确认授权；设备端随后轮询：
+
+```bash
+curl -i \
+  -X POST http://localhost:8080/oauth2/token \
+  -u tv-client:tvsecret \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=urn:ietf:params:oauth:grant-type:device_code' \
+  -d 'device_code=REPLACE_WITH_DEVICE_CODE'
 ```
 
 ### 查询 `userinfo`

@@ -446,6 +446,32 @@ VALUES (
         0,
         0,
         'active'
+    ),
+    (
+        'legacy-client',
+        'Legacy Password Grant Client',
+        '$2a$10$Ta/cXlQfWf6x7E7iwPNI6OI1oJv1vsELVhxawptALNqlN0Pth3tRm',
+        'confidential',
+        'client_secret_basic',
+        0,
+        0,
+        1800,
+        2592000,
+        0,
+        'active'
+    ),
+    (
+        'tv-client',
+        'TV Device Client',
+        '$2a$10$Ta/cXlQfWf6x7E7iwPNI6OI1oJv1vsELVhxawptALNqlN0Pth3tRm',
+        'confidential',
+        'client_secret_basic',
+        0,
+        0,
+        1800,
+        2592000,
+        0,
+        'active'
     );
 
 -- Redirect URIs
@@ -560,6 +586,27 @@ FROM oauth_clients
 WHERE
     client_id = 'service-client';
 
+INSERT INTO
+    oauth_client_grant_types (client_id, grant_type)
+SELECT id, 'password'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_grant_types (client_id, grant_type)
+SELECT id, 'refresh_token'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_grant_types (client_id, grant_type)
+SELECT id, 'urn:ietf:params:oauth:grant-type:device_code'
+FROM oauth_clients
+WHERE
+    client_id = 'tv-client';
+
 -- Auth methods
 INSERT INTO
     oauth_client_auth_methods (client_id, auth_method)
@@ -581,6 +628,20 @@ SELECT id, 'client_secret_basic'
 FROM oauth_clients
 WHERE
     client_id = 'service-client';
+
+INSERT INTO
+    oauth_client_auth_methods (client_id, auth_method)
+SELECT id, 'client_secret_basic'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_auth_methods (client_id, auth_method)
+SELECT id, 'client_secret_basic'
+FROM oauth_clients
+WHERE
+    client_id = 'tv-client';
 
 -- Scopes
 INSERT INTO
@@ -645,6 +706,41 @@ SELECT id, 'internal.api.write'
 FROM oauth_clients
 WHERE
     client_id = 'service-client';
+
+INSERT INTO
+    oauth_client_scopes (client_id, scope)
+SELECT id, 'openid'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_scopes (client_id, scope)
+SELECT id, 'profile'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_scopes (client_id, scope)
+SELECT id, 'offline_access'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_scopes (client_id, scope)
+SELECT id, 'openid'
+FROM oauth_clients
+WHERE
+    client_id = 'tv-client';
+
+INSERT INTO
+    oauth_client_scopes (client_id, scope)
+SELECT id, 'profile'
+FROM oauth_clients
+WHERE
+    client_id = 'tv-client';
 
 -- Sample consent
 INSERT INTO

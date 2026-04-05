@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>デバイス認証</title>
+  <style>
+    body { font-family: sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #1f2937; }
+    .card { border: 1px solid #d1d5db; border-radius: 16px; padding: 24px; box-shadow: 0 10px 24px rgba(0,0,0,0.06); }
+    .banner { margin-bottom: 16px; padding: 12px 14px; border-radius: 10px; background: #f3f4f6; }
+    .error { background: #fef2f2; color: #b91c1c; }
+    .success { background: #ecfdf5; color: #166534; }
+    .muted { color: #6b7280; }
+    input[type=text] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #cbd5e1; }
+    button { padding: 10px 16px; border-radius: 10px; border: 0; cursor: pointer; }
+    .approve { background: #0f766e; color: white; }
+    .deny { background: #e5e7eb; color: #111827; }
+    .actions { display: flex; gap: 12px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>デバイス認証</h1>
+    {{if .Error}}<div class="banner {{if .Success}}success{{else}}error{{end}}">{{.Error}}</div>{{end}}
+    {{if .UserCode}}
+      <p><strong>ユーザーコード:</strong> {{.UserCode}}</p>
+      {{if .ClientID}}
+        <p><strong>クライアント:</strong> {{if .ClientName}}{{.ClientName}}{{else}}{{.ClientID}}{{end}}</p>
+        {{if .Scopes}}
+          <p><strong>要求された権限:</strong></p>
+          <ul>
+            {{range .Scopes}}<li>{{.}}</li>{{end}}
+          </ul>
+        {{end}}
+        {{if not .Success}}
+        <form method="post">
+          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+          <input type="hidden" name="user_code" value="{{.UserCode}}">
+          <div class="actions">
+            <button class="approve" type="submit" name="action" value="approve">承認</button>
+            <button class="deny" type="submit" name="action" value="deny">拒否</button>
+          </div>
+        </form>
+        {{end}}
+      {{else}}
+        <p class="muted">コードを確認して続行してください。</p>
+      {{end}}
+    {{else}}
+      <p class="muted">デバイスに表示されたユーザーコードを入力してください。</p>
+      <form method="get">
+        <input type="text" name="user_code" placeholder="ABCD-EFGH" autocomplete="one-time-code">
+        <div class="actions">
+          <button class="approve" type="submit">続行</button>
+        </div>
+      </form>
+    {{end}}
+  </div>
+</body>
+</html>
