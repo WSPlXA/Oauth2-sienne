@@ -19,6 +19,8 @@ type TOTPSetupHandler struct {
 	service appmfa.Manager
 }
 
+const loginTOTPRoutingPath = "/login/totp"
+
 type totpSetupPageData struct {
 	Secret          string
 	ProvisioningURI string
@@ -86,9 +88,26 @@ func (h *TOTPSetupHandler) Handle(c *gin.Context) {
 		h.render(c, http.StatusForbidden, totpSetupPageData{Error: errInvalidCSRFToken.Error(), ReturnTo: returnTo})
 		return
 	}
-	result, err := h.service.ConfirmSetup(c.Request.Context(), sessionID, req.Code)
+	result, err := h.service.ConfirmSetup(c.Request.Context(), sessionID, req.Code, returnTo)
 	if err != nil {
 		h.writeError(c, err, true, returnTo)
+		return
+	}
+	if result.MFAChallengeID != "" {
+		c.SetCookie(mfaChallengeCookieName, result.MFAChallengeID, 300, "/", "", false, true)
+		c.SetCookie("idp_session", "", -1, "/", "", false, true)
+		if wantsHTML(c.GetHeader("Accept")) {
+			c.Redirect(http.StatusFound, loginTOTPRoutingPath)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"enabled":         result.Enabled,
+			"mfa_required":    result.TOTPRequired,
+			"challenge_id":    result.MFAChallengeID,
+			"redirect_uri":    loginTOTPRoutingPath,
+			"return_to":       returnTo,
+			"already_enabled": false,
+		})
 		return
 	}
 	if result.Enabled && returnTo != "" {

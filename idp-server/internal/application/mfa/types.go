@@ -15,7 +15,7 @@ var (
 
 type Manager interface {
 	BeginSetup(ctx context.Context, sessionID string) (*SetupResult, error)
-	ConfirmSetup(ctx context.Context, sessionID string, code string) (*ConfirmResult, error)
+	ConfirmSetup(ctx context.Context, sessionID string, code string, returnTo string) (*ConfirmResult, error)
 }
 
 type SetupResult struct {
@@ -25,5 +25,9 @@ type SetupResult struct {
 }
 
 type ConfirmResult struct {
-	Enabled bool
+	Enabled        bool
+	TOTPRequired   bool
+	MFAChallengeID string
+	RedirectURI    string
+	ReturnTo       string
 }

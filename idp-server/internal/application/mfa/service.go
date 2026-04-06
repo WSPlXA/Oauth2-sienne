@@ -10,6 +10,8 @@ import (
 	cacheport "idp-server/internal/ports/cache"
 	"idp-server/internal/ports/repository"
 	securityport "idp-server/internal/ports/security"
+
+	"github.com/google/uuid"
 )
 
 type Service struct {
@@ -24,7 +26,11 @@ type Service struct {
 	now          func() time.Time
 }
 
-const totpStepReplayTTL = 120 * time.Second
+const (
+	totpStepReplayTTL      = 120 * time.Second
+	loginChallengeTTL      = 5 * time.Minute
+	loginTOTPRedirectRoute = "/login/totp"
+)
 
 func NewService(
 	sessions repository.SessionRepository,
@@ -50,11 +56,11 @@ func NewService(
 }
 
 func (s *Service) BeginSetup(ctx context.Context, sessionID string) (*SetupResult, error) {
-	userID, user, err := s.loadUser(ctx, sessionID)
+	authCtx, err := s.loadUser(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	existing, err := s.totps.FindByUserID(ctx, userID)
+	existing, err := s.totps.FindByUserID(ctx, authCtx.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -65,21 +71,23 @@ func (s *Service) BeginSetup(ctx context.Context, sessionID string) (*SetupResul
 	if err != nil {
 		return nil, err
 	}
-	accountName := user.Email
+	accountName := authCtx.Email
 	if strings.TrimSpace(accountName) == "" {
-		accountName = user.Username
+		accountName = authCtx.Username
 	}
 	provisioningURI := s.totp.ProvisioningURI(s.issuer, accountName, secret)
-	if s.ttl <= 0 {
-		s.ttl = 10 * time.Minute
+	ttl := s.ttl
+	if ttl <= 0 {
+		ttl = 10 * time.Minute
 	}
+	now := s.now().UTC()
 	if err := s.mfaCache.SaveTOTPEnrollment(ctx, cacheport.TOTPEnrollmentEntry{
 		SessionID:       strings.TrimSpace(sessionID),
-		UserID:          strconv.FormatInt(userID, 10),
+		UserID:          strconv.FormatInt(authCtx.UserID, 10),
 		Secret:          secret,
 		ProvisioningURI: provisioningURI,
-		ExpiresAt:       s.now().Add(s.ttl),
-	}, s.ttl); err != nil {
+		ExpiresAt:       now.Add(ttl),
+	}, ttl); err != nil {
 		return nil, err
 	}
 	return &SetupResult{
@@ -88,8 +96,8 @@ func (s *Service) BeginSetup(ctx context.Context, sessionID string) (*SetupResul
 	}, nil
 }
 
-func (s *Service) ConfirmSetup(ctx context.Context, sessionID string, code string) (*ConfirmResult, error) {
-	userID, _, err := s.loadUser(ctx, sessionID)
+func (s *Service) ConfirmSetup(ctx context.Context, sessionID string, code string, returnTo string) (*ConfirmResult, error) {
+	authCtx, err := s.loadUser(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +109,7 @@ func (s *Service) ConfirmSetup(ctx context.Context, sessionID string, code strin
 	if entry == nil || !entry.ExpiresAt.After(now) {
 		return nil, ErrEnrollmentExpired
 	}
-	if entry.UserID != strconv.FormatInt(userID, 10) {
+	if entry.UserID != strconv.FormatInt(authCtx.UserID, 10) {
 		return nil, ErrEnrollmentExpired
 	}
 	if s.totp == nil {
@@ -111,7 +119,7 @@ func (s *Service) ConfirmSetup(ctx context.Context, sessionID string, code strin
 	if !ok {
 		return nil, ErrInvalidTOTPCode
 	}
-	reserved, err := s.mfaCache.ReserveTOTPStepUse(ctx, strconv.FormatInt(userID, 10), cacheport.TOTPPurposeEnable2FA, matchedStep, totpStepReplayTTL)
+	reserved, err := s.mfaCache.ReserveTOTPStepUse(ctx, strconv.FormatInt(authCtx.UserID, 10), cacheport.TOTPPurposeEnable2FA, matchedStep, totpStepReplayTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +127,7 @@ func (s *Service) ConfirmSetup(ctx context.Context, sessionID string, code strin
 		return nil, ErrTOTPCodeReused
 	}
 	if err := s.totps.Upsert(ctx, &totpdomain.Model{
-		UserID:    userID,
+		UserID:    authCtx.UserID,
 		Secret:    entry.Secret,
 		EnabledAt: now,
 		CreatedAt: now,
@@ -130,50 +138,135 @@ func (s *Service) ConfirmSetup(ctx context.Context, sessionID string, code strin
 	if err := s.mfaCache.DeleteTOTPEnrollment(ctx, strings.TrimSpace(sessionID)); err != nil {
 		return nil, err
 	}
-	return &ConfirmResult{Enabled: true}, nil
+
+	returnTo = strings.TrimSpace(returnTo)
+	if returnTo == "" {
+		return &ConfirmResult{Enabled: true}, nil
+	}
+
+	challengeID, err := s.createLoginChallenge(ctx, authCtx, returnTo, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.invalidateCurrentSession(ctx, authCtx, now); err != nil {
+		return nil, err
+	}
+
+	return &ConfirmResult{
+		Enabled:        true,
+		TOTPRequired:   true,
+		MFAChallengeID: challengeID,
+		RedirectURI:    loginTOTPRedirectRoute,
+		ReturnTo:       returnTo,
+	}, nil
 }
 
-func (s *Service) loadUser(ctx context.Context, sessionID string) (int64, anyUser, error) {
+func (s *Service) createLoginChallenge(ctx context.Context, authCtx mfaAuthContext, returnTo string, now time.Time) (string, error) {
+	challengeID := uuid.NewString()
+	err := s.mfaCache.SaveMFAChallenge(ctx, cacheport.MFAChallengeEntry{
+		ChallengeID: challengeID,
+		UserID:      strconv.FormatInt(authCtx.UserID, 10),
+		Subject:     authCtx.Subject,
+		Username:    authCtx.Username,
+		IPAddress:   authCtx.IPAddress,
+		UserAgent:   authCtx.UserAgent,
+		ReturnTo:    returnTo,
+		RedirectURI: returnTo,
+		ExpiresAt:   now.Add(loginChallengeTTL),
+	}, loginChallengeTTL)
+	if err != nil {
+		return "", err
+	}
+	return challengeID, nil
+}
+
+func (s *Service) invalidateCurrentSession(ctx context.Context, authCtx mfaAuthContext, now time.Time) error {
+	if authCtx.SessionID == "" {
+		return nil
+	}
+	if s.sessions != nil {
+		if err := s.sessions.LogoutBySessionID(ctx, authCtx.SessionID, now); err != nil {
+			return err
+		}
+	}
+	if s.sessionCache != nil {
+		if err := s.sessionCache.Delete(ctx, authCtx.SessionID); err != nil {
+			return err
+		}
+		if err := s.sessionCache.RemoveUserSessionIndex(ctx, strconv.FormatInt(authCtx.UserID, 10), authCtx.SessionID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) loadUser(ctx context.Context, sessionID string) (mfaAuthContext, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return 0, anyUser{}, ErrLoginRequired
+		return mfaAuthContext{}, ErrLoginRequired
 	}
+	now := s.now().UTC()
 	if s.sessionCache != nil {
 		entry, err := s.sessionCache.Get(ctx, sessionID)
 		if err != nil {
-			return 0, anyUser{}, err
+			return mfaAuthContext{}, err
 		}
-		if entry != nil && entry.Status == "active" && entry.ExpiresAt.After(s.now()) {
+		if entry != nil && entry.Status == "active" && entry.ExpiresAt.After(now) {
 			userID, err := strconv.ParseInt(entry.UserID, 10, 64)
 			if err == nil && userID > 0 {
 				user, err := s.users.FindByID(ctx, userID)
 				if err != nil {
-					return 0, anyUser{}, err
+					return mfaAuthContext{}, err
 				}
 				if user != nil {
-					return userID, anyUser{Username: user.Username, Email: user.Email}, nil
+					return mfaAuthContext{
+						SessionID: sessionID,
+						UserID:    userID,
+						Subject:   user.UserUUID,
+						Username:  user.Username,
+						Email:     user.Email,
+						IPAddress: entry.IPAddress,
+						UserAgent: entry.UserAgent,
+					}, nil
 				}
 			}
 		}
 	}
 	sessionModel, err := s.sessions.FindBySessionID(ctx, sessionID)
 	if err != nil {
-		return 0, anyUser{}, err
+		return mfaAuthContext{}, err
 	}
-	if sessionModel == nil || sessionModel.LoggedOutAt != nil || !sessionModel.ExpiresAt.After(s.now()) {
-		return 0, anyUser{}, ErrLoginRequired
+	if sessionModel == nil || sessionModel.LoggedOutAt != nil || !sessionModel.ExpiresAt.After(now) {
+		return mfaAuthContext{}, ErrLoginRequired
 	}
 	user, err := s.users.FindByID(ctx, sessionModel.UserID)
 	if err != nil {
-		return 0, anyUser{}, err
+		return mfaAuthContext{}, err
 	}
 	if user == nil {
-		return 0, anyUser{}, ErrLoginRequired
+		return mfaAuthContext{}, ErrLoginRequired
 	}
-	return user.ID, anyUser{Username: user.Username, Email: user.Email}, nil
+	subject := strings.TrimSpace(user.UserUUID)
+	if subject == "" {
+		subject = strings.TrimSpace(sessionModel.Subject)
+	}
+	return mfaAuthContext{
+		SessionID: sessionID,
+		UserID:    user.ID,
+		Subject:   subject,
+		Username:  user.Username,
+		Email:     user.Email,
+		IPAddress: sessionModel.IPAddress,
+		UserAgent: sessionModel.UserAgent,
+	}, nil
 }
 
-type anyUser struct {
-	Username string
-	Email    string
+type mfaAuthContext struct {
+	SessionID string
+	UserID    int64
+	Subject   string
+	Username  string
+	Email     string
+	IPAddress string
+	UserAgent string
 }
