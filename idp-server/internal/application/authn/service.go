@@ -8,26 +8,33 @@ import (
 	"time"
 
 	"idp-server/internal/domain/session"
+	totpdomain "idp-server/internal/domain/totp"
 	userdomain "idp-server/internal/domain/user"
 	pluginregistry "idp-server/internal/plugins/registry"
 	"idp-server/internal/ports/cache"
 	pluginport "idp-server/internal/ports/plugin"
 	"idp-server/internal/ports/repository"
+	securityport "idp-server/internal/ports/security"
 
 	"github.com/google/uuid"
 )
 
 type Authenticator interface {
 	Authenticate(ctx context.Context, input AuthenticateInput) (*AuthenticateResult, error)
+	VerifyTOTP(ctx context.Context, input VerifyTOTPInput) (*AuthenticateResult, error)
 }
 
 type Service struct {
 	sessionRepo  repository.SessionRepository
 	sessionCache cache.SessionCacheRepository
 	rateLimits   cache.RateLimitRepository
+	mfaCache     cache.MFARepository
 	userRepo     repository.UserRepository
+	totpRepo     repository.TOTPRepository
 	registry     *pluginregistry.AuthnRegistry
+	totp        securityport.TOTPProvider
 	sessionTTL   time.Duration
+	mfaTTL       time.Duration
 	ratePolicy   RateLimitPolicy
 	now          func() time.Time
 }
@@ -37,8 +44,12 @@ func NewService(
 	sessionRepo repository.SessionRepository,
 	sessionCache cache.SessionCacheRepository,
 	rateLimits cache.RateLimitRepository,
+	mfaCache cache.MFARepository,
 	registry *pluginregistry.AuthnRegistry,
+	totpRepo repository.TOTPRepository,
+	totp securityport.TOTPProvider,
 	sessionTTL time.Duration,
+	mfaTTL time.Duration,
 	ratePolicy RateLimitPolicy,
 ) *Service {
 	if ratePolicy.FailureWindow <= 0 && ratePolicy.MaxFailuresPerIP == 0 && ratePolicy.MaxFailuresPerUser == 0 && ratePolicy.UserLockThreshold == 0 && ratePolicy.UserLockTTL == 0 {
@@ -49,9 +60,13 @@ func NewService(
 		sessionRepo:  sessionRepo,
 		sessionCache: sessionCache,
 		rateLimits:   rateLimits,
+		mfaCache:     mfaCache,
 		userRepo:     userRepo,
+		totpRepo:     totpRepo,
 		registry:     registry,
+		totp:         totp,
 		sessionTTL:   sessionTTL,
+		mfaTTL:       mfaTTL,
 		ratePolicy:   ratePolicy,
 		now: func() time.Time {
 			return time.Now().UTC()
@@ -133,50 +148,63 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 		}
 	}
 
-	sessionID := uuid.NewString()
-	expiresAt := now.Add(s.sessionTTL)
-	acr, amrJSON := sessionAuthContext(methodType)
-	model := &session.Model{
-		SessionID:       sessionID,
-		UserID:          user.ID,
-		Subject:         user.UserUUID,
-		ACR:             acr,
-		AMRJSON:         amrJSON,
-		IPAddress:       input.IPAddress,
-		UserAgent:       input.UserAgent,
-		AuthenticatedAt: now,
-		ExpiresAt:       expiresAt,
-	}
-	if err := s.sessionRepo.Create(ctx, model); err != nil {
-		return nil, err
-	}
-
-	if s.sessionCache != nil {
-		cacheEntry := cache.SessionCacheEntry{
-			SessionID:       sessionID,
-			UserID:          strconv.FormatInt(user.ID, 10),
-			Subject:         user.UserUUID,
-			ACR:             model.ACR,
-			AMRJSON:         model.AMRJSON,
-			IPAddress:       input.IPAddress,
-			UserAgent:       input.UserAgent,
-			AuthenticatedAt: now,
-			ExpiresAt:       expiresAt,
-			Status:          "active",
-		}
-		if err := s.sessionCache.Save(ctx, cacheEntry, s.sessionTTL); err != nil {
+	if methodType == pluginport.AuthnMethodTypePassword {
+		credential, err := s.lookupTOTP(ctx, user.ID)
+		if err != nil {
 			return nil, err
 		}
+		if credential != nil {
+			challengeID, err := s.createMFAChallenge(ctx, user, input)
+			if err != nil {
+				return nil, err
+			}
+			return &AuthenticateResult{
+				UserID:         user.ID,
+				Subject:        user.UserUUID,
+				RedirectURI:    authnResult.RedirectURI,
+				ReturnTo:       input.ReturnTo,
+				MFARequired:    true,
+				MFAChallengeID: challengeID,
+			}, ErrMFARequired
+		}
 	}
 
-	return &AuthenticateResult{
-		SessionID:       sessionID,
-		UserID:          user.ID,
-		Subject:         user.UserUUID,
-		RedirectURI:     authnResult.RedirectURI,
-		AuthenticatedAt: now,
-		ExpiresAt:       expiresAt,
-	}, nil
+	return s.createSession(ctx, user, methodType, input.IPAddress, input.UserAgent, authnResult.RedirectURI, input.ReturnTo, now)
+}
+
+func (s *Service) VerifyTOTP(ctx context.Context, input VerifyTOTPInput) (*AuthenticateResult, error) {
+	if s.mfaCache == nil {
+		return nil, ErrMFAChallengeExpired
+	}
+	challenge, err := s.mfaCache.GetMFAChallenge(ctx, strings.TrimSpace(input.ChallengeID))
+	if err != nil {
+		return nil, err
+	}
+	if challenge == nil || !challenge.ExpiresAt.After(s.now()) {
+		return nil, ErrMFAChallengeExpired
+	}
+	userID, err := strconv.ParseInt(challenge.UserID, 10, 64)
+	if err != nil || userID <= 0 {
+		return nil, ErrMFAChallengeExpired
+	}
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, ErrMFAChallengeExpired
+	}
+	credential, err := s.lookupTOTP(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	if credential == nil || s.totp == nil || !s.totp.VerifyCode(credential.Secret, input.Code, s.now()) {
+		return nil, ErrInvalidTOTPCode
+	}
+	if err := s.mfaCache.DeleteMFAChallenge(ctx, challenge.ChallengeID); err != nil {
+		return nil, err
+	}
+	return s.createSession(ctx, user, pluginport.AuthnMethodTypePassword, challenge.IPAddress, challenge.UserAgent, challenge.RedirectURI, challenge.ReturnTo, s.now().UTC())
 }
 
 func resolveMethodType(input AuthenticateInput) (pluginport.AuthnMethodType, error) {
@@ -358,4 +386,86 @@ func (s *Service) lookupUserByUsername(ctx context.Context, username string) (*u
 		return nil, nil
 	}
 	return s.userRepo.FindByUsername(ctx, username)
+}
+
+func (s *Service) lookupTOTP(ctx context.Context, userID int64) (*totpdomain.Model, error) {
+	if s.totpRepo == nil || userID <= 0 {
+		return nil, nil
+	}
+	return s.totpRepo.FindByUserID(ctx, userID)
+}
+
+func (s *Service) createMFAChallenge(ctx context.Context, user *userdomain.Model, input AuthenticateInput) (string, error) {
+	if s.mfaCache == nil || user == nil {
+		return "", ErrMFARequired
+	}
+	challengeID := uuid.NewString()
+	if s.mfaTTL <= 0 {
+		s.mfaTTL = 5 * time.Minute
+	}
+	err := s.mfaCache.SaveMFAChallenge(ctx, cache.MFAChallengeEntry{
+		ChallengeID: challengeID,
+		UserID:      strconv.FormatInt(user.ID, 10),
+		Subject:     user.UserUUID,
+		Username:    user.Username,
+		IPAddress:   input.IPAddress,
+		UserAgent:   input.UserAgent,
+		ReturnTo:    input.ReturnTo,
+		RedirectURI: input.RedirectURI,
+		ExpiresAt:   s.now().Add(s.mfaTTL),
+	}, s.mfaTTL)
+	return challengeID, err
+}
+
+func (s *Service) createSession(ctx context.Context, user *userdomain.Model, methodType pluginport.AuthnMethodType, ipAddress, userAgent, redirectURI, returnTo string, now time.Time) (*AuthenticateResult, error) {
+	sessionID := uuid.NewString()
+	expiresAt := now.Add(s.sessionTTL)
+	acr, amrJSON := sessionAuthContext(methodType)
+	if strings.Contains(amrJSON, `"pwd"`) {
+		credential, err := s.lookupTOTP(ctx, user.ID)
+		if err == nil && credential != nil {
+			acr = "urn:idp:acr:mfa"
+			amrJSON = `["pwd","otp"]`
+		}
+	}
+	model := &session.Model{
+		SessionID:       sessionID,
+		UserID:          user.ID,
+		Subject:         user.UserUUID,
+		ACR:             acr,
+		AMRJSON:         amrJSON,
+		IPAddress:       ipAddress,
+		UserAgent:       userAgent,
+		AuthenticatedAt: now,
+		ExpiresAt:       expiresAt,
+	}
+	if err := s.sessionRepo.Create(ctx, model); err != nil {
+		return nil, err
+	}
+	if s.sessionCache != nil {
+		cacheEntry := cache.SessionCacheEntry{
+			SessionID:       sessionID,
+			UserID:          strconv.FormatInt(user.ID, 10),
+			Subject:         user.UserUUID,
+			ACR:             model.ACR,
+			AMRJSON:         model.AMRJSON,
+			IPAddress:       ipAddress,
+			UserAgent:       userAgent,
+			AuthenticatedAt: now,
+			ExpiresAt:       expiresAt,
+			Status:          "active",
+		}
+		if err := s.sessionCache.Save(ctx, cacheEntry, s.sessionTTL); err != nil {
+			return nil, err
+		}
+	}
+	return &AuthenticateResult{
+		SessionID:       sessionID,
+		UserID:          user.ID,
+		Subject:         user.UserUUID,
+		RedirectURI:     redirectURI,
+		ReturnTo:        returnTo,
+		AuthenticatedAt: now,
+		ExpiresAt:       expiresAt,
+	}, nil
 }

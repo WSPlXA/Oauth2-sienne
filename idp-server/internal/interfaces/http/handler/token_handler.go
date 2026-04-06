@@ -99,6 +99,9 @@ func (h *TokenHandler) Handle(c *gin.Context) {
 		RedirectURI:  req.RedirectURI,
 		CodeVerifier: req.CodeVerifier,
 		RefreshToken: req.RefreshToken,
+		DeviceCode:   req.DeviceCode,
+		Username:     req.Username,
+		Password:     req.Password,
 		Scopes:       req.ScopeList(),
 	})
 	if err != nil {
@@ -117,10 +120,21 @@ func (h *TokenHandler) Handle(c *gin.Context) {
 			oauthErr.Code = "invalid_scope"
 		case errors.Is(err, apptoken.ErrUnsupportedGrantType):
 			oauthErr.Code = "unsupported_grant_type"
+		case errors.Is(err, apptoken.ErrAuthorizationPending):
+			oauthErr.Code = "authorization_pending"
+			oauthErr.Description = err.Error()
+		case errors.Is(err, apptoken.ErrSlowDown):
+			oauthErr.Code = "slow_down"
+			oauthErr.Description = err.Error()
+		case errors.Is(err, apptoken.ErrAccessDenied):
+			oauthErr.Code = "access_denied"
+			oauthErr.Description = err.Error()
 		case errors.Is(err, apptoken.ErrInvalidCode),
 			errors.Is(err, apptoken.ErrInvalidRedirectURI),
 			errors.Is(err, apptoken.ErrInvalidCodeVerifier),
-			errors.Is(err, apptoken.ErrInvalidRefreshToken):
+			errors.Is(err, apptoken.ErrInvalidRefreshToken),
+			errors.Is(err, apptoken.ErrInvalidDeviceCode),
+			errors.Is(err, apptoken.ErrInvalidUserCredentials):
 			oauthErr.Code = "invalid_grant"
 		default:
 			status = http.StatusInternalServerError

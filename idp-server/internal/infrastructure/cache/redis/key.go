@@ -65,3 +65,19 @@ func (k *KeyBuilder) LoginFailIP(ip string) string {
 func (k *KeyBuilder) UserLock(userID string) string {
 	return fmt.Sprintf("%s:%s:lock:user:%s", k.Prefix, k.Env, userID)
 }
+
+func (k *KeyBuilder) DeviceCode(deviceCode string) string {
+	return fmt.Sprintf("%s:%s:device:code:%s", k.Prefix, k.Env, deviceCode)
+}
+
+func (k *KeyBuilder) DeviceUserCode(userCode string) string {
+	return fmt.Sprintf("%s:%s:device:user:%s", k.Prefix, k.Env, userCode)
+}
+
+func (k *KeyBuilder) TOTPEnrollment(sessionID string) string {
+	return fmt.Sprintf("%s:%s:mfa:totp:enroll:%s", k.Prefix, k.Env, sessionID)
+}
+
+func (k *KeyBuilder) MFAChallenge(challengeID string) string {
+	return fmt.Sprintf("%s:%s:mfa:challenge:%s", k.Prefix, k.Env, challengeID)
+}

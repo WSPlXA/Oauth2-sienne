@@ -107,6 +107,8 @@ DROP TABLE IF EXISTS oauth_authorization_codes;
 
 DROP TABLE IF EXISTS login_sessions;
 
+DROP TABLE IF EXISTS user_totp_credentials;
+
 DROP TABLE IF EXISTS oauth_client_scopes;
 
 DROP TABLE IF EXISTS oauth_client_auth_methods;
@@ -166,6 +168,21 @@ CREATE TABLE login_sessions (
     KEY idx_login_sessions_expires_at (expires_at),
     CONSTRAINT fk_login_sessions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'browser login sessions';
+
+-- =========================================================
+-- 2.1 User TOTP credentials
+-- =========================================================
+CREATE TABLE user_totp_credentials (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    secret VARCHAR(128) NOT NULL,
+    enabled_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_totp_credentials_user_id (user_id),
+    CONSTRAINT fk_user_totp_credentials_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'user totp mfa credentials';
 
 -- =========================================================
 -- 3. OAuth clients
@@ -508,6 +525,32 @@ VALUES (
         0,
         0,
         'active'
+    ),
+    (
+        'legacy-client',
+        'Legacy Password Grant Client',
+        '$2a$10$Ta/cXlQfWf6x7E7iwPNI6OI1oJv1vsELVhxawptALNqlN0Pth3tRm',
+        'confidential',
+        'client_secret_basic',
+        0,
+        0,
+        1800,
+        2592000,
+        0,
+        'active'
+    ),
+    (
+        'tv-client',
+        'TV Device Client',
+        '$2a$10$Ta/cXlQfWf6x7E7iwPNI6OI1oJv1vsELVhxawptALNqlN0Pth3tRm',
+        'confidential',
+        'client_secret_basic',
+        0,
+        0,
+        1800,
+        2592000,
+        0,
+        'active'
     );
 
 -- Redirect URIs
@@ -584,6 +627,27 @@ FROM oauth_clients
 WHERE
     client_id = 'service-client';
 
+INSERT INTO
+    oauth_client_grant_types (client_id, grant_type)
+SELECT id, 'password'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_grant_types (client_id, grant_type)
+SELECT id, 'refresh_token'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_grant_types (client_id, grant_type)
+SELECT id, 'urn:ietf:params:oauth:grant-type:device_code'
+FROM oauth_clients
+WHERE
+    client_id = 'tv-client';
+
 -- Auth methods
 INSERT INTO
     oauth_client_auth_methods (client_id, auth_method)
@@ -605,6 +669,20 @@ SELECT id, 'client_secret_basic'
 FROM oauth_clients
 WHERE
     client_id = 'service-client';
+
+INSERT INTO
+    oauth_client_auth_methods (client_id, auth_method)
+SELECT id, 'client_secret_basic'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_auth_methods (client_id, auth_method)
+SELECT id, 'client_secret_basic'
+FROM oauth_clients
+WHERE
+    client_id = 'tv-client';
 
 -- Scopes
 INSERT INTO
@@ -669,6 +747,41 @@ SELECT id, 'internal.api.write'
 FROM oauth_clients
 WHERE
     client_id = 'service-client';
+
+INSERT INTO
+    oauth_client_scopes (client_id, scope)
+SELECT id, 'openid'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_scopes (client_id, scope)
+SELECT id, 'profile'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_scopes (client_id, scope)
+SELECT id, 'offline_access'
+FROM oauth_clients
+WHERE
+    client_id = 'legacy-client';
+
+INSERT INTO
+    oauth_client_scopes (client_id, scope)
+SELECT id, 'openid'
+FROM oauth_clients
+WHERE
+    client_id = 'tv-client';
+
+INSERT INTO
+    oauth_client_scopes (client_id, scope)
+SELECT id, 'profile'
+FROM oauth_clients
+WHERE
+    client_id = 'tv-client';
 
 -- Sample consent
 INSERT INTO
@@ -895,4 +1008,3 @@ if (-not (Test-Path $migrateFile)) {
 
 Write-Host 'Starting services with Docker Compose...'
 & docker compose -f $composeFile up -d
-

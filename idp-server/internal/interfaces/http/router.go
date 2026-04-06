@@ -9,6 +9,8 @@ import (
 	appclient "idp-server/internal/application/client"
 	appclientauth "idp-server/internal/application/clientauth"
 	appconsent "idp-server/internal/application/consent"
+	appdevice "idp-server/internal/application/device"
+	appmfa "idp-server/internal/application/mfa"
 	"idp-server/internal/application/oidc"
 	appregister "idp-server/internal/application/register"
 	appsession "idp-server/internal/application/session"
@@ -19,7 +21,7 @@ import (
 	pluginregistry "idp-server/internal/plugins/registry"
 )
 
-func NewRouter(authzService authz.Service, consentService appconsent.Manager, registerService appregister.Registrar, clientCreator appclient.Creator, clientRedirectRegistrar appclient.Registrar, clientPostLogoutRedirectRegistrar appclient.PostLogoutRegistrar, logoutRedirectValidator appclient.LogoutRedirectValidator, authnService authn.Authenticator, federatedOIDCEnabled bool, sessionService appsession.Manager, clientAuthenticator appclientauth.Authenticator, grantRegistry *pluginregistry.GrantRegistry, oidcService *oidc.Service, authMiddleware *middleware.AuthMiddleware) *gin.Engine {
+func NewRouter(authzService authz.Service, consentService appconsent.Manager, registerService appregister.Registrar, clientCreator appclient.Creator, clientRedirectRegistrar appclient.Registrar, clientPostLogoutRedirectRegistrar appclient.PostLogoutRegistrar, logoutRedirectValidator appclient.LogoutRedirectValidator, authnService authn.Authenticator, federatedOIDCEnabled bool, sessionService appsession.Manager, clientAuthenticator appclientauth.Authenticator, grantRegistry *pluginregistry.GrantRegistry, deviceService *appdevice.Service, mfaService appmfa.Manager, oidcService *oidc.Service, authMiddleware *middleware.AuthMiddleware) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(middleware.NewLoggingMiddleware(log.Default()).Handler())
@@ -31,9 +33,13 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 	clientRedirectURIHandler := handler.NewClientRedirectURIHandler(clientRedirectRegistrar)
 	clientPostLogoutRedirectURIHandler := handler.NewClientPostLogoutRedirectURIHandler(clientPostLogoutRedirectRegistrar)
 	loginHandler := handler.NewLoginHandler(authnService, federatedOIDCEnabled)
+	loginTOTPHandler := handler.NewLoginTOTPHandler(authnService)
 	logoutHandler := handler.NewLogoutHandler(sessionService)
+	totpSetupHandler := handler.NewTOTPSetupHandler(mfaService)
 	endSessionHandler := handler.NewEndSessionHandler(sessionService, logoutRedirectValidator)
 	tokenHandler := handler.NewTokenHandler(clientAuthenticator, grantRegistry)
+	deviceAuthorizeHandler := handler.NewDeviceAuthorizeHandler(clientAuthenticator, deviceService)
+	deviceVerificationHandler := handler.NewDeviceVerificationHandler(deviceService)
 	introspectionHandler := handler.NewIntrospectionHandler(clientAuthenticator, oidcService)
 	userInfoHandler := handler.NewUserInfoHandler(oidcService)
 	oidcMetadataHandler := handler.NewOIDCMetadataHandler(oidcService)
@@ -44,6 +50,12 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 	router.GET("/.well-known/openid-configuration", oidcMetadataHandler.Discovery)
 	router.GET("/login", loginHandler.Handle)
 	router.POST("/login", loginHandler.Handle)
+	router.GET("/login/totp", loginTOTPHandler.Handle)
+	router.POST("/login/totp", loginTOTPHandler.Handle)
+	router.GET("/mfa/totp/setup", totpSetupHandler.Handle)
+	router.POST("/mfa/totp/setup", totpSetupHandler.Handle)
+	router.GET("/device", deviceVerificationHandler.Handle)
+	router.POST("/device", deviceVerificationHandler.Handle)
 	router.GET("/connect/logout", endSessionHandler.Get)
 	router.POST("/connect/logout", endSessionHandler.Post)
 	router.POST("/logout", logoutHandler.Handle)
@@ -60,6 +72,7 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 		oauth2.POST("/clients/:client_id/redirect-uris", clientRedirectURIHandler.Handle)
 		oauth2.POST("/clients/:client_id/post-logout-redirect-uris", clientPostLogoutRedirectURIHandler.Handle)
 		oauth2.POST("/token", tokenHandler.Handle)
+		oauth2.POST("/device/authorize", deviceAuthorizeHandler.Handle)
 		oauth2.POST("/introspect", introspectionHandler.Handle)
 		if authMiddleware != nil {
 			oauth2.GET("/userinfo", authMiddleware.RequireBearerToken(), userInfoHandler.Handle)

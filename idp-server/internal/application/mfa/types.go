@@ -1,0 +1,28 @@
+package mfa
+
+import (
+	"context"
+	"errors"
+)
+
+var (
+	ErrLoginRequired      = errors.New("login required")
+	ErrAlreadyEnabled     = errors.New("totp already enabled")
+	ErrEnrollmentExpired  = errors.New("totp enrollment expired")
+	ErrInvalidTOTPCode    = errors.New("invalid totp code")
+)
+
+type Manager interface {
+	BeginSetup(ctx context.Context, sessionID string) (*SetupResult, error)
+	ConfirmSetup(ctx context.Context, sessionID string, code string) (*ConfirmResult, error)
+}
+
+type SetupResult struct {
+	Secret          string
+	ProvisioningURI string
+	AlreadyEnabled  bool
+}
+
+type ConfirmResult struct {
+	Enabled bool
+}

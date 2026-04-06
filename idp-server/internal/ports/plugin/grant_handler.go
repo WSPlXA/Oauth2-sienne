@@ -16,6 +16,9 @@ type ExchangeInput struct {
 	RedirectURI  string
 	CodeVerifier string
 	RefreshToken string
+	DeviceCode   string
+	Username     string
+	Password     string
 	Scopes       []string
 }
 

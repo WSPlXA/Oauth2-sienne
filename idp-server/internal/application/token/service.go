@@ -34,6 +34,7 @@ type Service struct {
 	users      repository.UserRepository
 	tokens     repository.TokenRepository
 	tokenCache cacheport.TokenCacheRepository
+	deviceCodes cacheport.DeviceCodeRepository
 	passwords  securityport.PasswordVerifier
 	signer     securityport.Signer
 	issuer     string
@@ -46,6 +47,7 @@ func NewService(
 	users repository.UserRepository,
 	tokens repository.TokenRepository,
 	tokenCache cacheport.TokenCacheRepository,
+	deviceCodes cacheport.DeviceCodeRepository,
 	passwords securityport.PasswordVerifier,
 	signer securityport.Signer,
 	issuer string,
@@ -56,6 +58,7 @@ func NewService(
 		users:      users,
 		tokens:     tokens,
 		tokenCache: tokenCache,
+		deviceCodes: deviceCodes,
 		passwords:  passwords,
 		signer:     signer,
 		issuer:     issuer,
@@ -73,6 +76,10 @@ func (s *Service) Exchange(ctx context.Context, input ExchangeInput) (*ExchangeR
 		return s.exchangeRefreshToken(ctx, input)
 	case pkgoauth2.GrantTypeClientCredentials:
 		return s.exchangeClientCredentials(ctx, input)
+	case pkgoauth2.GrantTypePassword:
+		return s.exchangePassword(ctx, input)
+	case pkgoauth2.GrantTypeDeviceCode:
+		return s.exchangeDeviceCode(ctx, input)
 	default:
 		return nil, ErrUnsupportedGrantType
 	}
@@ -126,63 +133,10 @@ func (s *Service) exchangeAuthorizationCode(ctx context.Context, input ExchangeI
 	}
 
 	now := s.now()
-	accessExpiresAt := now.Add(time.Duration(client.AccessTokenTTLSeconds) * time.Second)
 	scopes := mustDecodeScopeJSON(code.ScopesJSON)
-	audiences := []string{client.ClientID}
-	accessToken, err := s.signer.Mint(map[string]any{
-		"iss": s.issuer,
-		"sub": user.UserUUID,
-		"aud": audiences,
-		"exp": accessExpiresAt.Unix(),
-		"iat": now.Unix(),
-		"nbf": now.Unix(),
-		"jti": uuid.NewString(),
-		"cid": client.ClientID,
-		"scp": scopes,
-	})
+	result, err := s.issueUserGrantTokens(ctx, client, user, scopes, now)
 	if err != nil {
 		return nil, err
-	}
-
-	accessAudienceJSON, _ := json.Marshal(audiences)
-	accessScopesJSON, _ := json.Marshal(scopes)
-	userID := user.ID
-	accessModel := &tokendomain.AccessToken{
-		TokenValue:   accessToken,
-		TokenSHA256:  sha256Hex(accessToken),
-		ClientID:     client.ID,
-		UserID:       &userID,
-		Subject:      user.UserUUID,
-		AudienceJSON: string(accessAudienceJSON),
-		ScopesJSON:   string(accessScopesJSON),
-		TokenType:    "Bearer",
-		TokenFormat:  "jwt",
-		IssuedAt:     now,
-		ExpiresAt:    accessExpiresAt,
-	}
-	if err := s.tokens.CreateAccessToken(ctx, accessModel); err != nil {
-		return nil, err
-	}
-	if s.tokenCache != nil {
-		_ = s.tokenCache.SaveAccessToken(ctx, cacheport.AccessTokenCacheEntry{
-			TokenSHA256:  accessModel.TokenSHA256,
-			ClientID:     client.ClientID,
-			UserID:       int64String(userID),
-			Subject:      user.UserUUID,
-			ScopesJSON:   string(accessScopesJSON),
-			AudienceJSON: string(accessAudienceJSON),
-			TokenType:    accessModel.TokenType,
-			TokenFormat:  accessModel.TokenFormat,
-			IssuedAt:     accessModel.IssuedAt,
-			ExpiresAt:    accessModel.ExpiresAt,
-		}, time.Until(accessExpiresAt))
-	}
-
-	result := &ExchangeResult{
-		AccessToken: accessToken,
-		TokenType:   "Bearer",
-		ExpiresIn:   int64(time.Until(accessExpiresAt).Seconds()),
-		Scope:       strings.Join(scopes, " "),
 	}
 
 	if contains(scopes, "openid") {
@@ -191,36 +145,6 @@ func (s *Service) exchangeAuthorizationCode(ctx context.Context, input ExchangeI
 			return nil, err
 		}
 		result.IDToken = idToken
-	}
-
-	if shouldIssueRefreshToken(client, scopes) {
-		refreshToken := uuid.NewString() + "." + uuid.NewString()
-		refreshExpiresAt := now.Add(time.Duration(client.RefreshTokenTTLSeconds) * time.Second)
-		refreshModel := &tokendomain.RefreshToken{
-			TokenValue:  refreshToken,
-			TokenSHA256: sha256Hex(refreshToken),
-			ClientID:    client.ID,
-			UserID:      &userID,
-			Subject:     user.UserUUID,
-			ScopesJSON:  string(accessScopesJSON),
-			IssuedAt:    now,
-			ExpiresAt:   refreshExpiresAt,
-		}
-		if err := s.tokens.CreateRefreshToken(ctx, refreshModel); err != nil {
-			return nil, err
-		}
-		if s.tokenCache != nil {
-			_ = s.tokenCache.SaveRefreshToken(ctx, cacheport.RefreshTokenCacheEntry{
-				TokenSHA256: refreshModel.TokenSHA256,
-				ClientID:    client.ClientID,
-				UserID:      int64String(userID),
-				Subject:     user.UserUUID,
-				ScopesJSON:  string(accessScopesJSON),
-				IssuedAt:    refreshModel.IssuedAt,
-				ExpiresAt:   refreshModel.ExpiresAt,
-			}, time.Until(refreshExpiresAt))
-		}
-		result.RefreshToken = refreshToken
 	}
 
 	return result, nil
@@ -478,6 +402,110 @@ func (s *Service) exchangeClientCredentials(ctx context.Context, input ExchangeI
 	}, nil
 }
 
+func (s *Service) exchangePassword(ctx context.Context, input ExchangeInput) (*ExchangeResult, error) {
+	client, err := s.clients.FindByClientID(ctx, strings.TrimSpace(input.ClientID))
+	if err != nil {
+		return nil, err
+	}
+	if client == nil || client.Status != "active" {
+		return nil, ErrInvalidClient
+	}
+	if !contains(client.GrantTypes, string(pkgoauth2.GrantTypePassword)) {
+		return nil, ErrInvalidClient
+	}
+	if err := s.validateClientSecret(client.ClientSecretHash, input.ClientSecret); err != nil {
+		return nil, err
+	}
+
+	user, err := s.users.FindByUsername(ctx, strings.TrimSpace(input.Username))
+	if err != nil {
+		return nil, err
+	}
+	if user == nil || user.Status == "locked" || (user.Status != "" && user.Status != "active") {
+		return nil, ErrInvalidUserCredentials
+	}
+	if s.passwords == nil || s.passwords.VerifyPassword(input.Password, user.PasswordHash) != nil {
+		return nil, ErrInvalidUserCredentials
+	}
+
+	scopes := normalizeScopes(input.Scopes)
+	if len(scopes) == 0 {
+		scopes = append([]string(nil), client.Scopes...)
+	}
+	if !allContained(scopes, client.Scopes) {
+		return nil, ErrInvalidScope
+	}
+
+	return s.issueUserGrantTokens(ctx, client, user, scopes, s.now())
+}
+
+func (s *Service) exchangeDeviceCode(ctx context.Context, input ExchangeInput) (*ExchangeResult, error) {
+	client, err := s.clients.FindByClientID(ctx, strings.TrimSpace(input.ClientID))
+	if err != nil {
+		return nil, err
+	}
+	if client == nil || client.Status != "active" {
+		return nil, ErrInvalidClient
+	}
+	if !contains(client.GrantTypes, string(pkgoauth2.GrantTypeDeviceCode)) {
+		return nil, ErrInvalidClient
+	}
+	if err := s.validateClientSecret(client.ClientSecretHash, input.ClientSecret); err != nil {
+		return nil, err
+	}
+	if s.deviceCodes == nil {
+		return nil, ErrUnsupportedGrantType
+	}
+
+	entry, err := s.deviceCodes.GetByDeviceCode(ctx, strings.TrimSpace(input.DeviceCode))
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil || entry.ClientID != client.ClientID || !entry.ExpiresAt.After(s.now()) {
+		return nil, ErrInvalidDeviceCode
+	}
+	allowed, err := s.deviceCodes.TouchPoll(ctx, entry.DeviceCode, s.now(), time.Duration(entry.Interval)*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, ErrSlowDown
+	}
+
+	switch entry.Status {
+	case "pending", "":
+		return nil, ErrAuthorizationPending
+	case "denied":
+		return nil, ErrAccessDenied
+	case "consumed":
+		return nil, ErrInvalidDeviceCode
+	case "approved":
+	default:
+		return nil, ErrInvalidDeviceCode
+	}
+
+	userID, err := strconv.ParseInt(entry.UserID, 10, 64)
+	if err != nil || userID <= 0 {
+		return nil, ErrInvalidDeviceCode
+	}
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil || user.UserUUID != entry.Subject {
+		return nil, ErrInvalidDeviceCode
+	}
+	scopes := mustDecodeScopeJSON(entry.ScopesJSON)
+	result, err := s.issueUserGrantTokens(ctx, client, user, scopes, s.now())
+	if err != nil {
+		return nil, err
+	}
+	if err := s.deviceCodes.MarkConsumed(ctx, entry.DeviceCode, s.now()); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (s *Service) validateClientSecret(secretHash, presentedSecret string) error {
 	if strings.TrimSpace(secretHash) == "" {
 		return nil
@@ -518,6 +546,98 @@ func validateCodeVerifier(code *authorizationdomain.Model, verifier string, requ
 	}
 
 	return nil
+}
+
+func (s *Service) issueUserGrantTokens(ctx context.Context, client *clientdomain.Model, user *userdomain.Model, scopes []string, now time.Time) (*ExchangeResult, error) {
+	accessExpiresAt := now.Add(time.Duration(client.AccessTokenTTLSeconds) * time.Second)
+	audiences := []string{client.ClientID}
+	accessToken, err := s.signer.Mint(map[string]any{
+		"iss": s.issuer,
+		"sub": user.UserUUID,
+		"aud": audiences,
+		"exp": accessExpiresAt.Unix(),
+		"iat": now.Unix(),
+		"nbf": now.Unix(),
+		"jti": uuid.NewString(),
+		"cid": client.ClientID,
+		"scp": scopes,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	accessAudienceJSON, _ := json.Marshal(audiences)
+	accessScopesJSON, _ := json.Marshal(scopes)
+	userID := user.ID
+	accessModel := &tokendomain.AccessToken{
+		TokenValue:   accessToken,
+		TokenSHA256:  sha256Hex(accessToken),
+		ClientID:     client.ID,
+		UserID:       &userID,
+		Subject:      user.UserUUID,
+		AudienceJSON: string(accessAudienceJSON),
+		ScopesJSON:   string(accessScopesJSON),
+		TokenType:    "Bearer",
+		TokenFormat:  "jwt",
+		IssuedAt:     now,
+		ExpiresAt:    accessExpiresAt,
+	}
+	if err := s.tokens.CreateAccessToken(ctx, accessModel); err != nil {
+		return nil, err
+	}
+	if s.tokenCache != nil {
+		_ = s.tokenCache.SaveAccessToken(ctx, cacheport.AccessTokenCacheEntry{
+			TokenSHA256:  accessModel.TokenSHA256,
+			ClientID:     client.ClientID,
+			UserID:       int64String(userID),
+			Subject:      user.UserUUID,
+			ScopesJSON:   string(accessScopesJSON),
+			AudienceJSON: string(accessAudienceJSON),
+			TokenType:    accessModel.TokenType,
+			TokenFormat:  accessModel.TokenFormat,
+			IssuedAt:     accessModel.IssuedAt,
+			ExpiresAt:    accessModel.ExpiresAt,
+		}, time.Until(accessExpiresAt))
+	}
+
+	result := &ExchangeResult{
+		AccessToken: accessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   int64(time.Until(accessExpiresAt).Seconds()),
+		Scope:       strings.Join(scopes, " "),
+	}
+	if !shouldIssueRefreshToken(client, scopes) {
+		return result, nil
+	}
+
+	refreshToken := uuid.NewString() + "." + uuid.NewString()
+	refreshExpiresAt := now.Add(time.Duration(client.RefreshTokenTTLSeconds) * time.Second)
+	refreshModel := &tokendomain.RefreshToken{
+		TokenValue:  refreshToken,
+		TokenSHA256: sha256Hex(refreshToken),
+		ClientID:    client.ID,
+		UserID:      &userID,
+		Subject:     user.UserUUID,
+		ScopesJSON:  string(accessScopesJSON),
+		IssuedAt:    now,
+		ExpiresAt:   refreshExpiresAt,
+	}
+	if err := s.tokens.CreateRefreshToken(ctx, refreshModel); err != nil {
+		return nil, err
+	}
+	if s.tokenCache != nil {
+		_ = s.tokenCache.SaveRefreshToken(ctx, cacheport.RefreshTokenCacheEntry{
+			TokenSHA256: refreshModel.TokenSHA256,
+			ClientID:    client.ClientID,
+			UserID:      int64String(userID),
+			Subject:     user.UserUUID,
+			ScopesJSON:  string(accessScopesJSON),
+			IssuedAt:    refreshModel.IssuedAt,
+			ExpiresAt:   refreshModel.ExpiresAt,
+		}, time.Until(refreshExpiresAt))
+	}
+	result.RefreshToken = refreshToken
+	return result, nil
 }
 
 func mustDecodeScopeJSON(raw string) []string {
