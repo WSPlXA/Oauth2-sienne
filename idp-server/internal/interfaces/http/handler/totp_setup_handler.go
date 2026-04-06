@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/base64"
 	"errors"
+	"html/template"
 	"net/http"
 	"strings"
 
@@ -21,7 +22,7 @@ type TOTPSetupHandler struct {
 type totpSetupPageData struct {
 	Secret          string
 	ProvisioningURI string
-	QRCodeURL       string
+	QRCodeURL       template.URL
 	ReturnTo        string
 	CSRFToken       string
 	Error           string
@@ -114,7 +115,7 @@ func (h *TOTPSetupHandler) render(c *gin.Context, status int, data totpSetupPage
 	c.JSON(status, gin.H{
 		"secret":           data.Secret,
 		"provisioning_uri": data.ProvisioningURI,
-		"qr_code_url":      data.QRCodeURL,
+		"qr_code_url":      string(data.QRCodeURL),
 		"return_to":        data.ReturnTo,
 		"already_enabled":  data.AlreadyEnabled,
 		"enabled":          data.Success,
@@ -157,7 +158,7 @@ func (h *TOTPSetupHandler) writeError(c *gin.Context, err error, preserve bool, 
 	h.render(c, status, data)
 }
 
-func buildQRCodeURL(provisioningURI string) string {
+func buildQRCodeURL(provisioningURI string) template.URL {
 	provisioningURI = strings.TrimSpace(provisioningURI)
 	if provisioningURI == "" {
 		return ""
@@ -166,5 +167,5 @@ func buildQRCodeURL(provisioningURI string) string {
 	if err != nil || len(png) == 0 {
 		return ""
 	}
-	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)
+	return template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png))
 }
