@@ -3,6 +3,8 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 
 	appmfa "idp-server/internal/application/mfa"
 	"idp-server/internal/interfaces/http/dto"
@@ -18,6 +20,7 @@ type TOTPSetupHandler struct {
 type totpSetupPageData struct {
 	Secret          string
 	ProvisioningURI string
+	QRCodeURL       string
 	CSRFToken       string
 	Error           string
 	Success         bool
@@ -39,6 +42,7 @@ func (h *TOTPSetupHandler) Handle(c *gin.Context) {
 		h.render(c, http.StatusOK, totpSetupPageData{
 			Secret:          result.Secret,
 			ProvisioningURI: result.ProvisioningURI,
+			QRCodeURL:       buildQRCodeURL(result.ProvisioningURI),
 			AlreadyEnabled:  result.AlreadyEnabled,
 		})
 		return
@@ -77,6 +81,7 @@ func (h *TOTPSetupHandler) render(c *gin.Context, status int, data totpSetupPage
 	c.JSON(status, gin.H{
 		"secret":           data.Secret,
 		"provisioning_uri": data.ProvisioningURI,
+		"qr_code_url":      data.QRCodeURL,
 		"already_enabled":  data.AlreadyEnabled,
 		"enabled":          data.Success,
 		"csrf_token":       data.CSRFToken,
@@ -106,8 +111,17 @@ func (h *TOTPSetupHandler) writeError(c *gin.Context, err error, preserve bool) 
 		if result, beginErr := h.service.BeginSetup(c.Request.Context(), sessionID); beginErr == nil && result != nil {
 			data.Secret = result.Secret
 			data.ProvisioningURI = result.ProvisioningURI
+			data.QRCodeURL = buildQRCodeURL(result.ProvisioningURI)
 			data.AlreadyEnabled = result.AlreadyEnabled
 		}
 	}
 	h.render(c, status, data)
+}
+
+func buildQRCodeURL(provisioningURI string) string {
+	provisioningURI = strings.TrimSpace(provisioningURI)
+	if provisioningURI == "" {
+		return ""
+	}
+	return "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=" + url.QueryEscape(provisioningURI)
 }
