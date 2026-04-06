@@ -81,3 +81,7 @@ func (k *KeyBuilder) TOTPEnrollment(sessionID string) string {
 func (k *KeyBuilder) MFAChallenge(challengeID string) string {
 	return fmt.Sprintf("%s:%s:mfa:challenge:%s", k.Prefix, k.Env, challengeID)
 }
+
+func (k *KeyBuilder) TOTPStepUsed(userID, purpose string, step int64) string {
+	return fmt.Sprintf("%s:%s:mfa:totp:used:%s:%s:%d", k.Prefix, k.Env, userID, purpose, step)
+}

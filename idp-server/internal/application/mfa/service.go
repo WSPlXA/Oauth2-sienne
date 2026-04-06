@@ -24,6 +24,8 @@ type Service struct {
 	now          func() time.Time
 }
 
+const totpStepReplayTTL = 120 * time.Second
+
 func NewService(
 	sessions repository.SessionRepository,
 	sessionCache cacheport.SessionCacheRepository,
@@ -43,7 +45,7 @@ func NewService(
 		totp:         totp,
 		issuer:       strings.TrimSpace(issuer),
 		ttl:          ttl,
-		now: func() time.Time { return time.Now().UTC() },
+		now:          func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -91,20 +93,31 @@ func (s *Service) ConfirmSetup(ctx context.Context, sessionID string, code strin
 	if err != nil {
 		return nil, err
 	}
+	now := s.now().UTC()
 	entry, err := s.mfaCache.GetTOTPEnrollment(ctx, strings.TrimSpace(sessionID))
 	if err != nil {
 		return nil, err
 	}
-	if entry == nil || !entry.ExpiresAt.After(s.now()) {
+	if entry == nil || !entry.ExpiresAt.After(now) {
 		return nil, ErrEnrollmentExpired
 	}
 	if entry.UserID != strconv.FormatInt(userID, 10) {
 		return nil, ErrEnrollmentExpired
 	}
-	if !s.totp.VerifyCode(entry.Secret, code, s.now()) {
+	if s.totp == nil {
 		return nil, ErrInvalidTOTPCode
 	}
-	now := s.now()
+	ok, matchedStep := s.totp.VerifyCodeWithStep(entry.Secret, code, now)
+	if !ok {
+		return nil, ErrInvalidTOTPCode
+	}
+	reserved, err := s.mfaCache.ReserveTOTPStepUse(ctx, strconv.FormatInt(userID, 10), cacheport.TOTPPurposeEnable2FA, matchedStep, totpStepReplayTTL)
+	if err != nil {
+		return nil, err
+	}
+	if !reserved {
+		return nil, ErrTOTPCodeReused
+	}
 	if err := s.totps.Upsert(ctx, &totpdomain.Model{
 		UserID:    userID,
 		Secret:    entry.Secret,

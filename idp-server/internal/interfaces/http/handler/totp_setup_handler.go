@@ -138,7 +138,7 @@ func (h *TOTPSetupHandler) writeError(c *gin.Context, err error, preserve bool, 
 		status = http.StatusConflict
 		data.AlreadyEnabled = true
 		data.Error = err.Error()
-	case errors.Is(err, appmfa.ErrEnrollmentExpired), errors.Is(err, appmfa.ErrInvalidTOTPCode):
+	case errors.Is(err, appmfa.ErrEnrollmentExpired), errors.Is(err, appmfa.ErrInvalidTOTPCode), errors.Is(err, appmfa.ErrTOTPCodeReused):
 		status = http.StatusBadRequest
 		data.Error = err.Error()
 	default:

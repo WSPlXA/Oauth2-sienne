@@ -75,7 +75,13 @@ func Wire() (*App, error) {
 	consentRepo := persistence.NewConsentRepository(db)
 	jwkRepo := persistence.NewJWKKeyRepository(db)
 	tokenRepo := persistence.NewTokenRepository(db)
-	totpRepo := persistence.NewTOTPRepository(db)
+	secretCodec, err := infrasecurity.NewSecretCodec(cfg.TOTPSecretEncryptionKey)
+	if err != nil {
+		_ = db.Close()
+		_ = redisClient.Close()
+		return nil, fmt.Errorf("init totp secret codec: %w", err)
+	}
+	totpRepo := persistence.NewTOTPRepository(db, secretCodec)
 	sessionCache := cacheRedis.NewSessionCacheRepository(redisClient, keyBuilder)
 	tokenCache := cacheRedis.NewTokenCacheRepository(redisClient, keyBuilder)
 	deviceCodeRepo := cacheRedis.NewDeviceCodeRepository(redisClient, keyBuilder)
@@ -188,6 +194,7 @@ type config struct {
 	LoginUserLockThreshold        int
 	LoginUserLockTTL              time.Duration
 	ForceMFAEnrollment            bool
+	TOTPSecretEncryptionKey       string
 }
 
 func loadConfigFromEnv() (*config, error) {
@@ -223,6 +230,7 @@ func loadConfigFromEnv() (*config, error) {
 		LoginUserLockThreshold:        getEnvInt("LOGIN_USER_LOCK_THRESHOLD", 5),
 		LoginUserLockTTL:              getEnvDuration("LOGIN_USER_LOCK_TTL", 30*time.Minute),
 		ForceMFAEnrollment:            getEnvBool("FORCE_MFA_ENROLLMENT", true),
+		TOTPSecretEncryptionKey:       strings.TrimSpace(os.Getenv("TOTP_SECRET_ENCRYPTION_KEY")),
 	}
 
 	if cfg.MySQLDSN == "" {
@@ -230,6 +238,13 @@ func loadConfigFromEnv() (*config, error) {
 	}
 	if cfg.RedisAddr == "" {
 		cfg.RedisAddr = buildRedisAddrFromEnv()
+	}
+	if cfg.TOTPSecretEncryptionKey == "" {
+		if strings.EqualFold(cfg.AppEnv, "dev") {
+			cfg.TOTPSecretEncryptionKey = "dev_totp_secret_encryption_key!!"
+		} else {
+			return nil, fmt.Errorf("missing TOTP_SECRET_ENCRYPTION_KEY")
+		}
 	}
 
 	if cfg.MySQLDSN == "" {

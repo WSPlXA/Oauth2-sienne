@@ -130,6 +130,7 @@ make down
 | `LOGIN_MAX_FAILURES_PER_USER` | 单用户失败上限 | `5` |
 | `LOGIN_USER_LOCK_THRESHOLD` | 用户锁定阈值 | `5` |
 | `LOGIN_USER_LOCK_TTL` | 用户锁定时长 | `30m` |
+| `TOTP_SECRET_ENCRYPTION_KEY` | TOTP 密钥落库加密密钥（支持 16/24/32 字节原文或 Base64） | `dev_totp_secret_encryption_key!!`（仅 `APP_ENV=dev`） |
 | `JWT_KEY_ID` | JWT `kid` 回退值 | `kid-2026-01-rs256` |
 | `SIGNING_KEY_DIR` | 本地签名密钥目录 | `scripts/dev_keys` |
 | `SIGNING_KEY_CHECK_INTERVAL` | 轮转检查周期 | `1h` |

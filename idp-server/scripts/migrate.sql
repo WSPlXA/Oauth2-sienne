@@ -96,7 +96,7 @@ CREATE TABLE login_sessions (
 CREATE TABLE user_totp_credentials (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
-    secret VARCHAR(128) NOT NULL,
+    secret VARCHAR(128) NOT NULL COMMENT 'encrypted TOTP secret (enc:v1 payload or legacy plain text)',
     enabled_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

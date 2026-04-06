@@ -10,11 +10,17 @@ import (
 )
 
 type TOTPRepository struct {
-	db *sql.DB
+	db    *sql.DB
+	codec secretCodec
 }
 
-func NewTOTPRepository(db *sql.DB) *TOTPRepository {
-	return &TOTPRepository{db: db}
+type secretCodec interface {
+	Encrypt(plaintext string) (string, error)
+	Decrypt(value string) (string, error)
+}
+
+func NewTOTPRepository(db *sql.DB, codec secretCodec) *TOTPRepository {
+	return &TOTPRepository{db: db, codec: codec}
 }
 
 func (r *TOTPRepository) FindByUserID(ctx context.Context, userID int64) (*totpdomain.Model, error) {
@@ -39,6 +45,11 @@ LIMIT 1`
 		}
 		return nil, err
 	}
+	secret, err := r.decryptSecret(model.Secret)
+	if err != nil {
+		return nil, err
+	}
+	model.Secret = secret
 	return &model, nil
 }
 
@@ -61,8 +72,26 @@ ON DUPLICATE KEY UPDATE
 	if model.EnabledAt.IsZero() {
 		model.EnabledAt = now
 	}
-	_, err := r.db.ExecContext(ctx, query, model.UserID, model.Secret, model.EnabledAt, model.CreatedAt, model.UpdatedAt)
+	secret, err := r.encryptSecret(model.Secret)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, query, model.UserID, secret, model.EnabledAt, model.CreatedAt, model.UpdatedAt)
 	return err
+}
+
+func (r *TOTPRepository) encryptSecret(secret string) (string, error) {
+	if r.codec == nil {
+		return secret, nil
+	}
+	return r.codec.Encrypt(secret)
+}
+
+func (r *TOTPRepository) decryptSecret(secret string) (string, error) {
+	if r.codec == nil {
+		return secret, nil
+	}
+	return r.codec.Decrypt(secret)
 }
 
 func (r *TOTPRepository) DeleteByUserID(ctx context.Context, userID int64) error {

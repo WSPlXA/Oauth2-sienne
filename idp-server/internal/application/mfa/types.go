@@ -6,10 +6,11 @@ import (
 )
 
 var (
-	ErrLoginRequired      = errors.New("login required")
-	ErrAlreadyEnabled     = errors.New("totp already enabled")
-	ErrEnrollmentExpired  = errors.New("totp enrollment expired")
-	ErrInvalidTOTPCode    = errors.New("invalid totp code")
+	ErrLoginRequired     = errors.New("login required")
+	ErrAlreadyEnabled    = errors.New("totp already enabled")
+	ErrEnrollmentExpired = errors.New("totp enrollment expired")
+	ErrInvalidTOTPCode   = errors.New("invalid totp code")
+	ErrTOTPCodeReused    = errors.New("totp code already used")
 )
 
 type Manager interface {

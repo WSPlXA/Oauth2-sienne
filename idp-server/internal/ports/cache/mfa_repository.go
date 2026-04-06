@@ -9,11 +9,18 @@ type MFARepository interface {
 	SaveTOTPEnrollment(ctx context.Context, entry TOTPEnrollmentEntry, ttl time.Duration) error
 	GetTOTPEnrollment(ctx context.Context, sessionID string) (*TOTPEnrollmentEntry, error)
 	DeleteTOTPEnrollment(ctx context.Context, sessionID string) error
+	ReserveTOTPStepUse(ctx context.Context, userID, purpose string, step int64, ttl time.Duration) (bool, error)
 
 	SaveMFAChallenge(ctx context.Context, entry MFAChallengeEntry, ttl time.Duration) error
 	GetMFAChallenge(ctx context.Context, challengeID string) (*MFAChallengeEntry, error)
 	DeleteMFAChallenge(ctx context.Context, challengeID string) error
 }
+
+const (
+	TOTPPurposeLogin         = "login"
+	TOTPPurposeEnable2FA     = "enable_2fa"
+	TOTPPurposeResetPassword = "reset_password"
+)
 
 type TOTPEnrollmentEntry struct {
 	SessionID       string

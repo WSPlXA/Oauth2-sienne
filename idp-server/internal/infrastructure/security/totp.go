@@ -53,21 +53,27 @@ func (p *TOTPProvider) ProvisioningURI(issuer, accountName, secret string) strin
 }
 
 func (p *TOTPProvider) VerifyCode(secret, code string, now time.Time) bool {
+	ok, _ := p.VerifyCodeWithStep(secret, code, now)
+	return ok
+}
+
+func (p *TOTPProvider) VerifyCodeWithStep(secret, code string, now time.Time) (bool, int64) {
 	code = strings.TrimSpace(code)
 	if len(code) != p.digits {
-		return false
+		return false, 0
 	}
 	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(strings.TrimSpace(secret)))
 	if err != nil || len(key) == 0 {
-		return false
+		return false, 0
 	}
 	counter := now.UTC().Unix() / p.period
 	for offset := -p.skew; offset <= p.skew; offset++ {
-		if p.generateCode(key, counter+offset) == code {
-			return true
+		step := counter + offset
+		if p.generateCode(key, step) == code {
+			return true, step
 		}
 	}
-	return false
+	return false, 0
 }
 
 func (p *TOTPProvider) generateCode(key []byte, counter int64) string {
