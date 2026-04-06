@@ -257,7 +257,7 @@ paths:
               schema:
                 type: string
         '302':
-          description: Redirect to `return_to`, `/login`, `/login/totp`, or upstream OIDC provider
+          description: Redirect to `return_to`, `/login`, `/login/totp`, `/mfa/totp/setup`, or upstream OIDC provider
           headers:
             Location:
               schema:
@@ -285,11 +285,18 @@ paths:
                   - $ref: '#/components/schemas/ErrorResponse'
                   - $ref: '#/components/schemas/LoginMFARequiredResponse'
         '403':
-          description: User disabled or invalid CSRF token
+          description: User disabled, invalid CSRF token, or MFA enrollment required
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: May set the `idp_session` cookie when MFA enrollment is required
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                oneOf:
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - $ref: '#/components/schemas/LoginMFAEnrollmentRequiredResponse'
         '423':
           description: User locked
           content:
@@ -1394,6 +1401,23 @@ components:
           type: string
           nullable: true
 
+    LoginMFAEnrollmentRequiredResponse:
+      type: object
+      required: [error, mfa_enrollment_required, redirect_uri]
+      properties:
+        error:
+          type: string
+          example: mfa enrollment required
+        mfa_enrollment_required:
+          type: boolean
+          example: true
+        redirect_uri:
+          type: string
+          example: /mfa/totp/setup
+        return_to:
+          type: string
+          nullable: true
+
     LoginTOTPRequest:
       type: object
       required: [code]
@@ -1423,6 +1447,9 @@ components:
           example: '123456'
         csrf_token:
           type: string
+        return_to:
+          type: string
+          nullable: true
 
     TOTPSetupViewResponse:
       type: object
@@ -1439,14 +1466,16 @@ components:
         qr_code_url:
           type: string
           nullable: true
-          format: uri
-          description: External QR rendering URL for provisioning URI.
+          description: Locally generated QR PNG as data URL for provisioning URI.
         already_enabled:
           type: boolean
         enabled:
           type: boolean
         csrf_token:
           type: string
+        return_to:
+          type: string
+          nullable: true
         error:
           type: string
           nullable: true
