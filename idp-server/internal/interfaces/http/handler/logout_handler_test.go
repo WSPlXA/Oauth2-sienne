@@ -14,13 +14,19 @@ import (
 )
 
 type stubSessionManager struct {
-	input appsession.LogoutInput
-	err   error
+	input          appsession.LogoutInput
+	logoutAllInput appsession.LogoutAllInput
+	err            error
 }
 
 func (s *stubSessionManager) Logout(_ context.Context, input appsession.LogoutInput) (*appsession.LogoutResult, error) {
 	s.input = input
 	return &appsession.LogoutResult{SessionID: input.SessionID}, s.err
+}
+
+func (s *stubSessionManager) LogoutAll(_ context.Context, input appsession.LogoutAllInput) (*appsession.LogoutAllResult, error) {
+	s.logoutAllInput = input
+	return &appsession.LogoutAllResult{SessionID: input.SessionID, RevokedSessionCount: 2, RevokedAccessTokens: 3, RevokedRefreshTokens: 1}, s.err
 }
 
 func TestLogoutHandlerHandleJSON(t *testing.T) {
@@ -97,5 +103,32 @@ func TestLogoutHandlerHandleRejectsMissingCSRFToken(t *testing.T) {
 	}
 	if service.input.SessionID != "" {
 		t.Fatalf("logout should not have been called: %#v", service.input)
+	}
+}
+
+func TestLogoutAllHandlerHandleJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &stubSessionManager{}
+	router := gin.New()
+	router.POST("/logout/all", NewLogoutAllHandler(service).Handle)
+	csrfCookie, csrfToken := mustNewCSRFCookie(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/logout/all", nil)
+	req.AddCookie(&http.Cookie{Name: "idp_session", Value: "session-123"})
+	req.AddCookie(csrfCookie)
+	req.Header.Set(csrfHeaderName, csrfToken)
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if service.logoutAllInput.SessionID != "session-123" {
+		t.Fatalf("session id = %q, want session-123", service.logoutAllInput.SessionID)
+	}
+	if cookie := findCookie(recorder.Result().Cookies(), "idp_session"); cookie == nil || cookie.Value != "" {
+		t.Fatalf("idp_session cookie = %#v, want cleared cookie", cookie)
 	}
 }

@@ -20,6 +20,7 @@
 ### 认证与会话
 
 - 本地账号注册、登录、登出
+- 当前会话登出与当前用户全端下线
 - Federated OIDC 登录（外部身份回调后映射本地用户）
 - Browser session（`idp_session`）持久化到 MySQL + Redis
 - OIDC End Session（`/connect/logout`）
@@ -64,6 +65,7 @@
 | `GET` `POST` | `/consent` | 用户同意 |
 | `GET` `POST` | `/device` | Device 用户确认 |
 | `POST` | `/logout` | 当前会话登出 |
+| `POST` | `/logout/all` | 当前用户全端下线（撤销 session + token） |
 | `GET` `POST` | `/connect/logout` | OIDC End Session |
 
 ### OAuth2 / OIDC

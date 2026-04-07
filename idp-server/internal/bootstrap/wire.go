@@ -128,7 +128,7 @@ func Wire() (*App, error) {
 		UserLockThreshold:  int64(cfg.LoginUserLockThreshold),
 		UserLockTTL:        cfg.LoginUserLockTTL,
 	})
-	sessionService := appsession.NewService(sessionRepo, sessionCache)
+	sessionService := appsession.NewService(sessionRepo, sessionCache, tokenRepo, tokenCache)
 	mfaService := appmfa.NewService(sessionRepo, sessionCache, userRepo, totpRepo, mfaCache, totpProvider, cfg.Issuer, 10*time.Minute)
 	rotationConfig := infracrypto.RotationConfig{
 		WorkingDir:    cfg.WorkDir,
