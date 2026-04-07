@@ -20,3 +20,7 @@ type LogoutAllResult struct {
 	RevokedAccessTokens  int
 	RevokedRefreshTokens int
 }
+
+type AdminLogoutUserInput struct {
+	UserID int64
+}

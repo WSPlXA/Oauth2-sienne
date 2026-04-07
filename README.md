@@ -48,6 +48,7 @@
 - `return_to` 本地路径校验（防开放重定向）
 - 登录失败限流 + 用户锁定
 - Redis Lua 原子脚本（state/nonce/revoke/rotate 等）
+- 32 位 RBAC 权限位（管理接口按 session + privilege_mask 鉴权）
 
 ## 2. HTTP 路由总览
 
@@ -67,6 +68,7 @@
 | `POST` | `/logout` | 当前会话登出 |
 | `POST` | `/logout/all` | 当前用户全端下线（撤销 session + token） |
 | `GET` `POST` | `/connect/logout` | OIDC End Session |
+| `POST` | `/admin/users/:user_id/logout-all` | 管理员强制某用户全端下线（需 RBAC） |
 
 ### OAuth2 / OIDC
 

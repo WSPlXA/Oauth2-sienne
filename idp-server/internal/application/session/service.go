@@ -15,6 +15,7 @@ import (
 type Manager interface {
 	Logout(ctx context.Context, input LogoutInput) (*LogoutResult, error)
 	LogoutAll(ctx context.Context, input LogoutAllInput) (*LogoutAllResult, error)
+	AdminLogoutUser(ctx context.Context, input AdminLogoutUserInput) (*LogoutAllResult, error)
 }
 
 type tokenRevoker interface {
@@ -104,42 +105,14 @@ func (s *Service) LogoutAll(ctx context.Context, input LogoutAllInput) (*LogoutA
 		}
 		return &LogoutAllResult{SessionID: sessionID}, nil
 	}
+	return s.logoutUser(ctx, currentSession.UserID, sessionID)
+}
 
-	now := s.now()
-	activeSessions, err := s.sessions.ListActiveByUserID(ctx, currentSession.UserID)
-	if err != nil {
-		return nil, err
+func (s *Service) AdminLogoutUser(ctx context.Context, input AdminLogoutUserInput) (*LogoutAllResult, error) {
+	if input.UserID <= 0 {
+		return &LogoutAllResult{}, nil
 	}
-
-	if err := s.sessions.LogoutAllByUserID(ctx, currentSession.UserID, now); err != nil {
-		return nil, err
-	}
-
-	sessionIDs, err := s.collectUserSessionIDs(ctx, currentSession.UserID, activeSessions)
-	if err != nil {
-		return nil, err
-	}
-	for _, candidate := range sessionIDs {
-		if candidate == "" || s.sessionCache == nil {
-			continue
-		}
-		if err := s.sessionCache.Delete(ctx, candidate); err != nil {
-			return nil, err
-		}
-	}
-
-	revokedAccess, revokedRefresh, err := s.revokeUserTokens(ctx, currentSession.UserID, now)
-	if err != nil {
-		return nil, err
-	}
-
-	return &LogoutAllResult{
-		SessionID:            sessionID,
-		UserID:               strconv.FormatInt(currentSession.UserID, 10),
-		RevokedSessionCount:  len(sessionIDs),
-		RevokedAccessTokens:  revokedAccess,
-		RevokedRefreshTokens: revokedRefresh,
-	}, nil
+	return s.logoutUser(ctx, input.UserID, "")
 }
 
 func (s *Service) collectUserSessionIDs(ctx context.Context, userID int64, activeSessions []*sessiondomain.Model) ([]string, error) {
@@ -180,6 +153,44 @@ func (s *Service) collectUserSessionIDs(ctx context.Context, userID int64, activ
 	}
 
 	return ids, nil
+}
+
+func (s *Service) logoutUser(ctx context.Context, userID int64, sessionID string) (*LogoutAllResult, error) {
+	now := s.now()
+	activeSessions, err := s.sessions.ListActiveByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.sessions.LogoutAllByUserID(ctx, userID, now); err != nil {
+		return nil, err
+	}
+
+	sessionIDs, err := s.collectUserSessionIDs(ctx, userID, activeSessions)
+	if err != nil {
+		return nil, err
+	}
+	for _, candidate := range sessionIDs {
+		if candidate == "" || s.sessionCache == nil {
+			continue
+		}
+		if err := s.sessionCache.Delete(ctx, candidate); err != nil {
+			return nil, err
+		}
+	}
+
+	revokedAccess, revokedRefresh, err := s.revokeUserTokens(ctx, userID, now)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LogoutAllResult{
+		SessionID:            sessionID,
+		UserID:               strconv.FormatInt(userID, 10),
+		RevokedSessionCount:  len(sessionIDs),
+		RevokedAccessTokens:  revokedAccess,
+		RevokedRefreshTokens: revokedRefresh,
+	}, nil
 }
 
 func (s *Service) revokeUserTokens(ctx context.Context, userID int64, revokedAt time.Time) (int, int, error) {
