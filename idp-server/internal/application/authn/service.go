@@ -40,6 +40,8 @@ type Service struct {
 	now                func() time.Time
 }
 
+const totpStepReplayTTL = 120 * time.Second
+
 func NewService(
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
@@ -187,11 +189,12 @@ func (s *Service) VerifyTOTP(ctx context.Context, input VerifyTOTPInput) (*Authe
 	if s.mfaCache == nil {
 		return nil, ErrMFAChallengeExpired
 	}
+	now := s.now().UTC()
 	challenge, err := s.mfaCache.GetMFAChallenge(ctx, strings.TrimSpace(input.ChallengeID))
 	if err != nil {
 		return nil, err
 	}
-	if challenge == nil || !challenge.ExpiresAt.After(s.now()) {
+	if challenge == nil || !challenge.ExpiresAt.After(now) {
 		return nil, ErrMFAChallengeExpired
 	}
 	userID, err := strconv.ParseInt(challenge.UserID, 10, 64)
@@ -209,13 +212,24 @@ func (s *Service) VerifyTOTP(ctx context.Context, input VerifyTOTPInput) (*Authe
 	if err != nil {
 		return nil, err
 	}
-	if credential == nil || s.totp == nil || !s.totp.VerifyCode(credential.Secret, input.Code, s.now()) {
+	if credential == nil || s.totp == nil {
 		return nil, ErrInvalidTOTPCode
+	}
+	ok, matchedStep := s.totp.VerifyCodeWithStep(credential.Secret, input.Code, now)
+	if !ok {
+		return nil, ErrInvalidTOTPCode
+	}
+	reserved, err := s.mfaCache.ReserveTOTPStepUse(ctx, challenge.UserID, cache.TOTPPurposeLogin, matchedStep, totpStepReplayTTL)
+	if err != nil {
+		return nil, err
+	}
+	if !reserved {
+		return nil, ErrTOTPCodeReused
 	}
 	if err := s.mfaCache.DeleteMFAChallenge(ctx, challenge.ChallengeID); err != nil {
 		return nil, err
 	}
-	return s.createSession(ctx, user, pluginport.AuthnMethodTypePassword, challenge.IPAddress, challenge.UserAgent, challenge.RedirectURI, challenge.ReturnTo, s.now().UTC())
+	return s.createSession(ctx, user, pluginport.AuthnMethodTypePassword, challenge.IPAddress, challenge.UserAgent, challenge.RedirectURI, challenge.ReturnTo, now)
 }
 
 func resolveMethodType(input AuthenticateInput) (pluginport.AuthnMethodType, error) {

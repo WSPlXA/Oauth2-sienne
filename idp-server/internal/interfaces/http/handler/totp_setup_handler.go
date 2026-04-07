@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/base64"
 	"errors"
+	"html/template"
 	"net/http"
 	"strings"
 
@@ -18,10 +19,12 @@ type TOTPSetupHandler struct {
 	service appmfa.Manager
 }
 
+const loginTOTPRoutingPath = "/login/totp"
+
 type totpSetupPageData struct {
 	Secret          string
 	ProvisioningURI string
-	QRCodeURL       string
+	QRCodeURL       template.URL
 	ReturnTo        string
 	CSRFToken       string
 	Error           string
@@ -85,9 +88,26 @@ func (h *TOTPSetupHandler) Handle(c *gin.Context) {
 		h.render(c, http.StatusForbidden, totpSetupPageData{Error: errInvalidCSRFToken.Error(), ReturnTo: returnTo})
 		return
 	}
-	result, err := h.service.ConfirmSetup(c.Request.Context(), sessionID, req.Code)
+	result, err := h.service.ConfirmSetup(c.Request.Context(), sessionID, req.Code, returnTo)
 	if err != nil {
 		h.writeError(c, err, true, returnTo)
+		return
+	}
+	if result.MFAChallengeID != "" {
+		c.SetCookie(mfaChallengeCookieName, result.MFAChallengeID, 300, "/", "", false, true)
+		c.SetCookie("idp_session", "", -1, "/", "", false, true)
+		if wantsHTML(c.GetHeader("Accept")) {
+			c.Redirect(http.StatusFound, loginTOTPRoutingPath)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"enabled":         result.Enabled,
+			"mfa_required":    result.TOTPRequired,
+			"challenge_id":    result.MFAChallengeID,
+			"redirect_uri":    loginTOTPRoutingPath,
+			"return_to":       returnTo,
+			"already_enabled": false,
+		})
 		return
 	}
 	if result.Enabled && returnTo != "" {
@@ -114,7 +134,7 @@ func (h *TOTPSetupHandler) render(c *gin.Context, status int, data totpSetupPage
 	c.JSON(status, gin.H{
 		"secret":           data.Secret,
 		"provisioning_uri": data.ProvisioningURI,
-		"qr_code_url":      data.QRCodeURL,
+		"qr_code_url":      string(data.QRCodeURL),
 		"return_to":        data.ReturnTo,
 		"already_enabled":  data.AlreadyEnabled,
 		"enabled":          data.Success,
@@ -138,7 +158,7 @@ func (h *TOTPSetupHandler) writeError(c *gin.Context, err error, preserve bool, 
 		status = http.StatusConflict
 		data.AlreadyEnabled = true
 		data.Error = err.Error()
-	case errors.Is(err, appmfa.ErrEnrollmentExpired), errors.Is(err, appmfa.ErrInvalidTOTPCode):
+	case errors.Is(err, appmfa.ErrEnrollmentExpired), errors.Is(err, appmfa.ErrInvalidTOTPCode), errors.Is(err, appmfa.ErrTOTPCodeReused):
 		status = http.StatusBadRequest
 		data.Error = err.Error()
 	default:
@@ -157,7 +177,7 @@ func (h *TOTPSetupHandler) writeError(c *gin.Context, err error, preserve bool, 
 	h.render(c, status, data)
 }
 
-func buildQRCodeURL(provisioningURI string) string {
+func buildQRCodeURL(provisioningURI string) template.URL {
 	provisioningURI = strings.TrimSpace(provisioningURI)
 	if provisioningURI == "" {
 		return ""
@@ -166,5 +186,5 @@ func buildQRCodeURL(provisioningURI string) string {
 	if err != nil || len(png) == 0 {
 		return ""
 	}
-	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)
+	return template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png))
 }

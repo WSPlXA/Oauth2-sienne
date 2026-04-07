@@ -14,6 +14,7 @@ var (
 	ErrMFARequired           = errors.New("mfa required")
 	ErrMFAEnrollmentRequired = errors.New("mfa enrollment required")
 	ErrInvalidTOTPCode       = errors.New("invalid totp code")
+	ErrTOTPCodeReused        = errors.New("totp code already used")
 	ErrMFAChallengeExpired   = errors.New("mfa challenge expired")
 )
 

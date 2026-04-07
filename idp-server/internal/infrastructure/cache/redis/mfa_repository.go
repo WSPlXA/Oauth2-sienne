@@ -54,6 +54,14 @@ func (r *MFARepository) DeleteTOTPEnrollment(ctx context.Context, sessionID stri
 	return r.rdb.Del(ctx, r.key.TOTPEnrollment(sessionID)).Err()
 }
 
+func (r *MFARepository) ReserveTOTPStepUse(ctx context.Context, userID, purpose string, step int64, ttl time.Duration) (bool, error) {
+	ok, err := r.rdb.SetNX(ctx, r.key.TOTPStepUsed(userID, purpose, step), "1", ttl).Result()
+	if err != nil {
+		return false, err
+	}
+	return ok, nil
+}
+
 func (r *MFARepository) SaveMFAChallenge(ctx context.Context, entry cacheport.MFAChallengeEntry, ttl time.Duration) error {
 	key := r.key.MFAChallenge(entry.ChallengeID)
 	pipe := r.rdb.TxPipeline()

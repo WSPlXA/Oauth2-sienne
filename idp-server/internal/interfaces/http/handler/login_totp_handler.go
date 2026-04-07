@@ -54,7 +54,7 @@ func (h *LoginTOTPHandler) Handle(c *gin.Context) {
 		case errors.Is(err, authn.ErrMFAChallengeExpired):
 			status = http.StatusUnauthorized
 			c.SetCookie(mfaChallengeCookieName, "", -1, "/", "", false, true)
-		case errors.Is(err, authn.ErrInvalidTOTPCode):
+		case errors.Is(err, authn.ErrInvalidTOTPCode), errors.Is(err, authn.ErrTOTPCodeReused):
 			status = http.StatusUnauthorized
 		default:
 			status = http.StatusInternalServerError
