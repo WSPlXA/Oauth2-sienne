@@ -1,0 +1,425 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: idp-system
+  labels:
+    app.kubernetes.io/name: idp-server
+    app.kubernetes.io/part-of: idp-stack
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: idp-runtime-secret
+  namespace: idp-system
+  labels:
+    app.kubernetes.io/part-of: idp-stack
+type: Opaque
+stringData:
+  MYSQL_ROOT_PASSWORD: rootpass
+  MYSQL_PASSWORD: apppass
+  REDIS_PASSWORD: redispass
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: idp-runtime-config
+  namespace: idp-system
+  labels:
+    app.kubernetes.io/part-of: idp-stack
+data:
+  MYSQL_HOST: idp-mysql
+  MYSQL_PORT: "3306"
+  MYSQL_DATABASE: app
+  MYSQL_USER: app
+  REDIS_HOST: idp-redis
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  REDIS_KEY_PREFIX: idp
+  APP_ENV: prod
+  SESSION_TTL: 8h
+  ISSUER: https://idp.example.com
+  LISTEN_ADDR: :8080
+  SIGNING_KEY_DIR: /var/lib/idp/signing-keys
+  SIGNING_KEY_BITS: "2048"
+  SIGNING_KEY_CHECK_INTERVAL: 1h
+  SIGNING_KEY_ROTATE_BEFORE: 24h
+  SIGNING_KEY_RETIRE_AFTER: 24h
+  LOGIN_FAILURE_WINDOW: 15m
+  LOGIN_MAX_FAILURES_PER_IP: "20"
+  LOGIN_MAX_FAILURES_PER_USER: "5"
+  LOGIN_USER_LOCK_THRESHOLD: "5"
+  LOGIN_USER_LOCK_TTL: 30m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: idp-mysql
+  namespace: idp-system
+  labels:
+    app.kubernetes.io/name: idp-mysql
+    app.kubernetes.io/part-of: idp-stack
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: idp-mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: idp-mysql
+  namespace: idp-system
+  labels:
+    app.kubernetes.io/name: idp-mysql
+    app.kubernetes.io/part-of: idp-stack
+spec:
+  serviceName: idp-mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: idp-mysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: idp-mysql
+        app.kubernetes.io/part-of: idp-stack
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mysql
+          image: ghcr.io/your-org/idp-db:2026.04.02
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: idp-runtime-config
+            - secretRef:
+                name: idp-runtime-secret
+          ports:
+            - name: mysql
+              containerPort: 3306
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-data
+        labels:
+          app.kubernetes.io/part-of: idp-stack
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: idp-redis
+  namespace: idp-system
+  labels:
+    app.kubernetes.io/name: idp-redis
+    app.kubernetes.io/part-of: idp-stack
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: idp-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: idp-redis
+  namespace: idp-system
+  labels:
+    app.kubernetes.io/name: idp-redis
+    app.kubernetes.io/part-of: idp-stack
+spec:
+  serviceName: idp-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: idp-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: idp-redis
+        app.kubernetes.io/part-of: idp-stack
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: ghcr.io/your-org/idp-redis:2026.04.02
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: idp-runtime-secret
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app.kubernetes.io/part-of: idp-stack
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: idp-signing-keys
+  namespace: idp-system
+  labels:
+    app.kubernetes.io/name: idp-server
+    app.kubernetes.io/part-of: idp-stack
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: idp-server
+  namespace: idp-system
+  labels:
+    app.kubernetes.io/name: idp-server
+    app.kubernetes.io/part-of: idp-stack
+spec:
+  selector:
+    app.kubernetes.io/name: idp-server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idp-server
+  namespace: idp-system
+  labels:
+    app.kubernetes.io/name: idp-server
+    app.kubernetes.io/part-of: idp-stack
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: idp-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: idp-server
+        app.kubernetes.io/part-of: idp-stack
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: server
+          image: ghcr.io/your-org/idp-server:2026.04.02
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: idp-runtime-config
+            - secretRef:
+                name: idp-runtime-secret
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: signing-keys
+              mountPath: /var/lib/idp/signing-keys
+      volumes:
+        - name: signing-keys
+          persistentVolumeClaim:
+            claimName: idp-signing-keys
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: idp-mysql-ingress
+  namespace: idp-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: idp-mysql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: idp-server
+      ports:
+        - protocol: TCP
+          port: 3306
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: idp-redis-ingress
+  namespace: idp-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: idp-redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: idp-server
+      ports:
+        - protocol: TCP
+          port: 6379

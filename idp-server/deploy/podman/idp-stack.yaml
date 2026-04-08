@@ -1,0 +1,205 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: idp-runtime-secret
+type: Opaque
+data:
+  MYSQL_ROOT_PASSWORD: cm9vdHBhc3M=
+  MYSQL_PASSWORD: YXBwcGFzcw==
+  REDIS_PASSWORD: cmVkaXNwYXNz
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: idp-runtime-config
+data:
+  MYSQL_HOST: 127.0.0.1
+  MYSQL_PORT: "3306"
+  MYSQL_DATABASE: app
+  MYSQL_USER: app
+  REDIS_HOST: 127.0.0.1
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  REDIS_KEY_PREFIX: idp
+  APP_ENV: prod
+  SESSION_TTL: 8h
+  ISSUER: http://localhost:8080
+  LISTEN_ADDR: :8080
+  SIGNING_KEY_DIR: /var/lib/idp/signing-keys
+  SIGNING_KEY_BITS: "2048"
+  SIGNING_KEY_CHECK_INTERVAL: 1h
+  SIGNING_KEY_ROTATE_BEFORE: 24h
+  SIGNING_KEY_RETIRE_AFTER: 24h
+  LOGIN_FAILURE_WINDOW: 15m
+  LOGIN_MAX_FAILURES_PER_IP: "20"
+  LOGIN_MAX_FAILURES_PER_USER: "5"
+  LOGIN_USER_LOCK_THRESHOLD: "5"
+  LOGIN_USER_LOCK_TTL: 30m
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: idp-mysql-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: idp-redis-data
+  annotations:
+    volume.podman.io/uid: "999"
+    volume.podman.io/gid: "1000"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: idp-signing-keys
+  annotations:
+    volume.podman.io/uid: "10001"
+    volume.podman.io/gid: "10001"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: idp-stack
+  labels:
+    app.kubernetes.io/part-of: idp-stack
+  annotations:
+    io.podman.annotations.infra.name: idp-stack-infra
+spec:
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 30
+  containers:
+    - name: mysql
+      image: localhost/idp-db:2026.04.02
+      imagePullPolicy: IfNotPresent
+      envFrom:
+        - configMapRef:
+            name: idp-runtime-config
+        - secretRef:
+            name: idp-runtime-secret
+      volumeMounts:
+        - name: mysql-data
+          mountPath: /var/lib/mysql
+      ports:
+        - containerPort: 3306
+          hostPort: 3306
+          name: mysql
+          protocol: TCP
+      livenessProbe:
+        exec:
+          command:
+            - sh
+            - -ec
+            - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+        periodSeconds: 20
+        timeoutSeconds: 5
+        failureThreshold: 3
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+    - name: redis
+      image: localhost/idp-redis:2026.04.02
+      imagePullPolicy: IfNotPresent
+      envFrom:
+        - secretRef:
+            name: idp-runtime-secret
+      ports:
+        - containerPort: 6379
+          hostPort: 6379
+          name: redis
+          protocol: TCP
+      volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      livenessProbe:
+        exec:
+          command:
+            - sh
+            - -ec
+            - redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG
+        periodSeconds: 20
+        timeoutSeconds: 5
+        failureThreshold: 3
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 1000
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+    - name: server
+      image: localhost/idp-server:2026.04.02
+      imagePullPolicy: IfNotPresent
+      envFrom:
+        - configMapRef:
+            name: idp-runtime-config
+        - secretRef:
+            name: idp-runtime-secret
+      ports:
+        - name: http
+          containerPort: 8080
+          hostPort: 8080
+      volumeMounts:
+        - name: signing-keys
+          mountPath: /var/lib/idp/signing-keys
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: http
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+  volumes:
+    - name: mysql-data
+      persistentVolumeClaim:
+        claimName: idp-mysql-data
+    - name: redis-data
+      persistentVolumeClaim:
+        claimName: idp-redis-data
+    - name: signing-keys
+      persistentVolumeClaim:
+        claimName: idp-signing-keys
