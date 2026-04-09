@@ -18,6 +18,8 @@ type LoginTOTPHandler struct {
 	authnService authn.Authenticator
 }
 
+const defaultPostLoginRedirect = "/"
+
 type loginTOTPPageData struct {
 	CSRFToken string
 	Error     string
@@ -71,6 +73,10 @@ func (h *LoginTOTPHandler) Handle(c *gin.Context) {
 	}
 	if redirectURI != "" {
 		c.Redirect(http.StatusFound, redirectURI)
+		return
+	}
+	if wantsHTML(c.GetHeader("Accept")) {
+		c.Redirect(http.StatusFound, defaultPostLoginRedirect)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
