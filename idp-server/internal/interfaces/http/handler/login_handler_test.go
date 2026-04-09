@@ -48,7 +48,7 @@ func TestLoginHandlerHandleGetHTML(t *testing.T) {
 		t.Fatalf("content type = %q, want text/html", got)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, "<title>ログイン</title>") {
+	if !strings.Contains(body, "<title>Sign In</title>") {
 		t.Fatalf("body did not contain login title: %s", body)
 	}
 	if !strings.Contains(body, `name="return_to" value="/oauth2/authorize?client_id=demo"`) {
@@ -247,7 +247,7 @@ func TestLoginHandlerHandlePostErrorRendersHTML(t *testing.T) {
 		t.Fatalf("content type = %q, want text/html", got)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, "ユーザー名またはパスワードが正しくありません。") {
+	if !strings.Contains(body, "Invalid username or password.") {
 		t.Fatalf("body did not contain error message: %s", body)
 	}
 	if !strings.Contains(body, `value="alice"`) {
@@ -375,7 +375,7 @@ func TestLoginHandlerHandleGetHTMLShowsFederatedOIDCButton(t *testing.T) {
 	router.ServeHTTP(recorder, req)
 
 	body := recorder.Body.String()
-	if !strings.Contains(body, "OpenID Connect でログイン") {
+	if !strings.Contains(body, "Sign in with OpenID Connect") {
 		t.Fatalf("body did not contain federated oidc button: %s", body)
 	}
 	if !strings.Contains(body, `name="method" value="federated_oidc"`) {

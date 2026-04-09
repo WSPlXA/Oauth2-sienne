@@ -3,6 +3,7 @@ package http
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"idp-server/internal/application/authn"
@@ -22,12 +23,30 @@ import (
 	"idp-server/internal/interfaces/http/middleware"
 	pluginregistry "idp-server/internal/plugins/registry"
 	"idp-server/pkg/rbac"
+	"idp-server/resource"
 )
 
 func NewRouter(authzService authz.Service, consentService appconsent.Manager, registerService appregister.Registrar, clientCreator appclient.Creator, clientRedirectRegistrar appclient.Registrar, clientPostLogoutRedirectRegistrar appclient.PostLogoutRegistrar, logoutRedirectValidator appclient.LogoutRedirectValidator, authnService authn.Authenticator, federatedOIDCEnabled bool, sessionService appsession.Manager, rbacService apprbac.Manager, auditRepo repository.AuditEventRepository, clientAuthenticator appclientauth.Authenticator, grantRegistry *pluginregistry.GrantRegistry, deviceService *appdevice.Service, mfaService appmfa.Manager, oidcService *oidc.Service, authMiddleware *middleware.AuthMiddleware, adminMiddleware *middleware.SessionPermissionMiddleware) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(middleware.NewLoggingMiddleware(log.Default()).Handler())
+	router.NoRoute(func(c *gin.Context) {
+		if routerWantsHTML(c.GetHeader("Accept")) {
+			c.Header("Content-Type", "text/html; charset=utf-8")
+			c.Status(http.StatusNotFound)
+			_ = resource.NotFoundTemplate.Execute(c.Writer, gin.H{
+				"Method": c.Request.Method,
+				"Path":   c.Request.URL.Path,
+			})
+			return
+		}
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "not_found",
+			"message": "route not found",
+			"method":  c.Request.Method,
+			"path":    c.Request.URL.Path,
+		})
+	})
 
 	authorizeHandler := handler.NewAuthorizationHandler(authzService)
 	clientHandler := handler.NewClientHandler(clientCreator)
@@ -103,4 +122,9 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 	}
 
 	return router
+}
+
+func routerWantsHTML(accept string) bool {
+	accept = strings.ToLower(accept)
+	return accept == "" || strings.Contains(accept, "text/html") || strings.Contains(accept, "*/*")
 }

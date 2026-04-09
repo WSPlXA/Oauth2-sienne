@@ -142,7 +142,7 @@ func (h *ConsentHandler) writeCSRFFailure(c *gin.Context, returnTo, sessionID st
 	if wantsHTML(c.GetHeader("Accept")) {
 		data := consentPageData{
 			ReturnTo: returnTo,
-			Error:    "リクエストの整合性検証に失敗しました。",
+			Error:    "CSRF validation failed.",
 		}
 		if h.service != nil {
 			result, err := h.service.Prepare(c.Request.Context(), appconsent.PrepareInput{

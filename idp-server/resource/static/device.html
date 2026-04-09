@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>デバイス認証</title>
+  <title>Device Verification</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
           fontFamily: {
-            sans: ["Manrope", "Noto Sans JP", "sans-serif"]
+            sans: ["Manrope", "sans-serif"]
           }
         }
       }
@@ -18,7 +18,7 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
 <body class="min-h-screen bg-[radial-gradient(circle_at_10%_10%,#fde68a_0%,transparent_28%),radial-gradient(circle_at_92%_90%,#dbeafe_0%,transparent_30%),linear-gradient(135deg,#fefce8_0%,#f8fafc_48%,#eef2ff_100%)] text-slate-900">
@@ -28,7 +28,7 @@
         <i class="fa-solid fa-tv"></i>
       </div>
       <p class="mt-4 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Device Flow</p>
-      <h1 class="mt-2 text-3xl font-extrabold tracking-tight">デバイス認証</h1>
+      <h1 class="mt-2 text-3xl font-extrabold tracking-tight">Device Verification</h1>
 
       {{if .Error}}
       <div class="mt-5 rounded-xl border {{if .Success}}border-emerald-200 bg-emerald-50 text-emerald-700{{else}}border-red-200 bg-red-50 text-red-700{{end}} px-4 py-3 text-sm">
@@ -66,18 +66,18 @@
             <div class="flex flex-col gap-3 sm:flex-row">
               <button class="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 px-4 py-3 text-sm font-bold text-white shadow-[0_14px_30px_rgba(5,150,105,0.25)] transition hover:brightness-105" type="submit" name="action" value="approve">
                 <i class="fa-solid fa-check"></i>
-                承認
+                Approve
               </button>
               <button class="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50" type="submit" name="action" value="deny">
                 <i class="fa-solid fa-xmark"></i>
-                拒否
+                Deny
               </button>
             </div>
           </form>
           {{end}}
         </div>
         {{else}}
-        <p class="mt-4 text-sm text-slate-600">コードを確認して続行してください。</p>
+        <p class="mt-4 text-sm text-slate-600">Confirm the code and continue.</p>
         {{end}}
       </div>
       {{else}}
@@ -88,7 +88,7 @@
         </label>
         <button class="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-5 py-3 text-sm font-bold text-white shadow-[0_14px_30px_rgba(217,119,6,0.25)] transition hover:brightness-105" type="submit">
           <i class="fa-solid fa-arrow-right"></i>
-          続行
+          Continue
         </button>
       </form>
       {{end}}

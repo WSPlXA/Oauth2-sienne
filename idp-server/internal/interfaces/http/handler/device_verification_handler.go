@@ -68,7 +68,7 @@ func (h *DeviceVerificationHandler) Handle(c *gin.Context) {
 	if err := validateCSRFToken(c, req.CSRFToken); err != nil {
 		h.renderPage(c, http.StatusForbidden, devicePageData{
 			UserCode: req.UserCode,
-			Error:    "リクエストの整合性検証に失敗しました。",
+			Error:    "CSRF validation failed.",
 		})
 		return
 	}
@@ -122,7 +122,7 @@ func (h *DeviceVerificationHandler) writeError(c *gin.Context, err error, userCo
 
 func successMessage(approved bool) string {
 	if approved {
-		return "デバイスの認証を承認しました。元の画面に戻って続行してください。"
+		return "Device verification approved. Return to your original device to continue."
 	}
-	return "デバイスの認証を拒否しました。"
+	return "Device verification denied."
 }

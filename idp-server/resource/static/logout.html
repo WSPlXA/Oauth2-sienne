@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ログアウト</title>
+  <title>Sign Out</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
           fontFamily: {
-            sans: ["Manrope", "Noto Sans JP", "sans-serif"]
+            sans: ["Manrope", "sans-serif"]
           }
         }
       }
@@ -18,7 +18,7 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
 <body class="min-h-screen bg-[radial-gradient(circle_at_12%_12%,#fee2e2_0%,transparent_30%),radial-gradient(circle_at_85%_90%,#ffedd5_0%,transparent_32%),linear-gradient(135deg,#fff7ed_0%,#fffaf5_45%,#fef2f2_100%)] text-slate-900">
@@ -28,7 +28,7 @@
         <i class="fa-solid fa-right-from-bracket"></i>
       </div>
       <p class="mt-4 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">End Session</p>
-      <h1 class="mt-2 text-3xl font-extrabold tracking-tight">ログアウト</h1>
+      <h1 class="mt-2 text-3xl font-extrabold tracking-tight">Sign Out</h1>
 
       {{if .Error}}
       <div class="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -54,11 +54,11 @@
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
         <button type="submit" class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-orange-600 to-red-600 px-4 py-3 text-sm font-bold text-white shadow-[0_14px_30px_rgba(234,88,12,0.28)] transition hover:brightness-105">
           <i class="fa-solid fa-power-off"></i>
-          ログアウトを実行
+          Sign Out
         </button>
       </form>
 
-      <p class="mt-3 text-center text-xs text-slate-500">自動送信されない場合はボタンを押してください。</p>
+      <p class="mt-3 text-center text-xs text-slate-500">If automatic submission does not start, click the button.</p>
     </main>
   </div>
 

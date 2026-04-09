@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TOTP 設定</title>
+  <title>TOTP Setup</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
           fontFamily: {
-            sans: ["Manrope", "Noto Sans JP", "sans-serif"]
+            sans: ["Manrope", "sans-serif"]
           }
         }
       }
@@ -18,84 +18,66 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
 <body class="min-h-screen bg-[radial-gradient(circle_at_15%_15%,#e0f2fe_0%,transparent_30%),radial-gradient(circle_at_80%_5%,#fef3c7_0%,transparent_30%),linear-gradient(135deg,#f0f9ff_0%,#f8fafc_45%,#f5f3ff_100%)] text-slate-900">
-  <div class="mx-auto flex min-h-screen w-full max-w-6xl items-center px-4 py-10 sm:px-6 lg:px-8">
-    <main class="w-full overflow-hidden rounded-3xl border border-slate-200 bg-white/85 shadow-[0_30px_100px_rgba(15,23,42,0.12)] backdrop-blur">
-      <div class="grid gap-8 p-6 sm:p-8 lg:grid-cols-[1fr_360px] lg:p-10">
-        <section>
-          <div class="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-700">
-            <i class="fa-solid fa-qrcode"></i>
-          </div>
-          <p class="mt-4 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">MFA Enrollment</p>
-          <h1 class="mt-2 text-3xl font-extrabold tracking-tight">TOTP を有効化</h1>
-
-          {{if .Error}}
-          <div class="mt-5 rounded-xl border {{if .Success}}border-emerald-200 bg-emerald-50 text-emerald-700{{else}}border-red-200 bg-red-50 text-red-700{{end}} px-4 py-3 text-sm">
-            {{if .Success}}<i class="fa-solid fa-circle-check mr-2"></i>{{else}}<i class="fa-solid fa-circle-exclamation mr-2"></i>{{end}}{{.Error}}
-          </div>
-          {{end}}
-
-          {{if .AlreadyEnabled}}
-          <div class="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-700">
-            <i class="fa-solid fa-shield-check mr-2"></i>このアカウントでは TOTP がすでに有効です。
-          </div>
-          {{else if .Success}}
-          <div class="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-700">
-            <i class="fa-solid fa-check mr-2"></i>TOTP の設定が完了しました。
-          </div>
-          {{else}}
-          <div class="mt-6 grid gap-5 rounded-2xl border border-slate-200 bg-white p-5 sm:grid-cols-[220px_1fr]">
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              {{if .QRCodeURL}}
-              <img src="{{.QRCodeURL}}" alt="TOTP QR Code" class="mx-auto h-auto w-full max-w-[220px] rounded-lg">
-              {{else}}
-              <div class="flex h-[220px] items-center justify-center text-sm text-slate-500">QR unavailable</div>
-              {{end}}
-            </div>
-            <div class="space-y-4">
-              <div>
-                <p class="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Secret</p>
-                <p class="mt-2 break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm">{{.Secret}}</p>
-              </div>
-              <div>
-                <p class="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">otpauth URI</p>
-                <p class="mt-2 break-all rounded-xl border border-dashed border-cyan-300 bg-cyan-50/70 px-3 py-2 text-xs text-slate-700">{{.ProvisioningURI}}</p>
-              </div>
-            </div>
-          </div>
-
-          <form method="post" class="mt-6 space-y-4">
-            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-            <input type="hidden" name="return_to" value="{{.ReturnTo}}">
-            <label class="block">
-              <span class="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Authenticator Code</span>
-              <input id="code" name="code" maxlength="6" autocomplete="one-time-code" inputmode="numeric" placeholder="123456" class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-center text-2xl font-bold tracking-[0.35em] outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
-            </label>
-            <button class="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-700 px-5 py-3 text-sm font-bold text-white shadow-[0_14px_30px_rgba(8,145,178,0.25)] transition hover:brightness-105" type="submit">
-              <i class="fa-solid fa-shield"></i>
-              TOTP を有効化
-            </button>
-          </form>
-          {{end}}
-        </section>
-
-        <aside class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-          <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Checklist</p>
-          <ul class="mt-4 space-y-3 text-sm text-slate-700">
-            <li class="flex items-start gap-3"><i class="fa-solid fa-check mt-1 text-emerald-600"></i><span>認証アプリで QR を読み取る</span></li>
-            <li class="flex items-start gap-3"><i class="fa-solid fa-check mt-1 text-emerald-600"></i><span>6桁コードを入力して確認</span></li>
-            <li class="flex items-start gap-3"><i class="fa-solid fa-check mt-1 text-emerald-600"></i><span>完了後に元の認可画面へ戻る</span></li>
-          </ul>
-
-          <div class="mt-6 rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-500">
-            ReturnTo
-            <p class="mt-1 break-all text-slate-700">{{if .ReturnTo}}{{.ReturnTo}}{{else}}/oauth2/authorize{{end}}</p>
-          </div>
-        </aside>
+  <div class="mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-4 py-10 sm:px-6 lg:px-8">
+    <main class="w-full overflow-hidden rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-[0_30px_100px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8 lg:p-10">
+      <div class="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-700">
+        <i class="fa-solid fa-qrcode"></i>
       </div>
+      <p class="mt-4 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">MFA Enrollment</p>
+      <h1 class="mt-2 text-3xl font-extrabold tracking-tight">Enable TOTP</h1>
+
+      {{if .Error}}
+      <div class="mt-5 rounded-xl border {{if .Success}}border-emerald-200 bg-emerald-50 text-emerald-700{{else}}border-red-200 bg-red-50 text-red-700{{end}} px-4 py-3 text-sm">
+        {{if .Success}}<i class="fa-solid fa-circle-check mr-2"></i>{{else}}<i class="fa-solid fa-circle-exclamation mr-2"></i>{{end}}{{.Error}}
+      </div>
+      {{end}}
+
+      {{if .AlreadyEnabled}}
+      <div class="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-700">
+        <i class="fa-solid fa-shield-check mr-2"></i>TOTP is already enabled for this account.
+      </div>
+      {{else if .Success}}
+      <div class="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-700">
+        <i class="fa-solid fa-check mr-2"></i>TOTP setup completed.
+      </div>
+      {{else}}
+      <div class="mt-6 grid gap-5 rounded-2xl border border-slate-200 bg-white p-5 sm:grid-cols-[220px_1fr]">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          {{if .QRCodeURL}}
+          <img src="{{.QRCodeURL}}" alt="TOTP QR Code" class="mx-auto h-auto w-full max-w-[220px] rounded-lg">
+          {{else}}
+          <div class="flex h-[220px] items-center justify-center text-sm text-slate-500">QR unavailable</div>
+          {{end}}
+        </div>
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Secret</p>
+            <p class="mt-2 break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm">{{.Secret}}</p>
+          </div>
+          <div>
+            <p class="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">otpauth URI</p>
+            <p class="mt-2 break-all rounded-xl border border-dashed border-cyan-300 bg-cyan-50/70 px-3 py-2 text-xs text-slate-700">{{.ProvisioningURI}}</p>
+          </div>
+        </div>
+      </div>
+
+      <form method="post" class="mt-6 space-y-4">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <input type="hidden" name="return_to" value="{{.ReturnTo}}">
+        <label class="block">
+          <span class="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Authenticator Code</span>
+          <input id="code" name="code" maxlength="6" autocomplete="one-time-code" inputmode="numeric" placeholder="123456" class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-center text-2xl font-bold tracking-[0.35em] outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
+        </label>
+        <button class="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-700 px-5 py-3 text-sm font-bold text-white shadow-[0_14px_30px_rgba(8,145,178,0.25)] transition hover:brightness-105" type="submit">
+          <i class="fa-solid fa-shield"></i>
+          Enable TOTP
+        </button>
+      </form>
+      {{end}}
     </main>
   </div>
 </body>

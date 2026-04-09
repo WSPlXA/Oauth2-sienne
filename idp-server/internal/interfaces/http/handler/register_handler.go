@@ -57,7 +57,7 @@ func (h *RegisterHandler) Handle(c *gin.Context) {
 				Username:    strings.TrimSpace(c.PostForm("username")),
 				Email:       strings.TrimSpace(c.PostForm("email")),
 				DisplayName: strings.TrimSpace(c.PostForm("display_name")),
-				Error:       "入力値を確認してください。",
+				Error:       "Please check your input values.",
 			})
 			return
 		}

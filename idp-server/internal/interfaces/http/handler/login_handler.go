@@ -90,7 +90,7 @@ func (h *LoginHandler) Handle(c *gin.Context) {
 			h.renderLoginPage(c, http.StatusBadRequest, loginPageData{
 				Username:             c.PostForm("username"),
 				ReturnTo:             c.PostForm("return_to"),
-				Error:                "ユーザー名とパスワードを入力してください。",
+				Error:                "Please enter both username and password.",
 				FederatedOIDCEnabled: h.federatedOIDCEnabled,
 			})
 			return
@@ -255,24 +255,24 @@ func shouldProcessLoginGET(req dto.LoginRequest) bool {
 func localizeLoginError(err error) string {
 	switch {
 	case errors.Is(err, authn.ErrInvalidCredentials):
-		return "ユーザー名またはパスワードが正しくありません。"
+		return "Invalid username or password."
 	case errors.Is(err, authn.ErrUserLocked):
-		return "アカウントはロックされています。"
+		return "Your account is locked."
 	case errors.Is(err, authn.ErrUserDisabled):
-		return "アカウントは無効化されています。"
+		return "Your account is disabled."
 	case errors.Is(err, authn.ErrRateLimited):
-		return "試行回数が多すぎます。しばらく待ってから再試行してください。"
+		return "Too many attempts. Please try again later."
 	case errors.Is(err, authn.ErrUnsupportedMethod):
-		return "この認証方式は現在利用できません。"
+		return "This authentication method is currently unavailable."
 	default:
-		return "ログイン処理に失敗しました。"
+		return "Sign-in failed."
 	}
 }
 
 func (h *LoginHandler) writeInvalidReturnTo(c *gin.Context) {
 	if wantsHTML(c.GetHeader("Accept")) {
 		h.renderLoginPage(c, http.StatusBadRequest, loginPageData{
-			Error:                "遷移先が不正です。",
+			Error:                "Invalid redirect target.",
 			FederatedOIDCEnabled: h.federatedOIDCEnabled,
 		})
 		return
@@ -285,7 +285,7 @@ func (h *LoginHandler) writeInvalidCSRF(c *gin.Context, req dto.LoginRequest) {
 		h.renderLoginPage(c, http.StatusForbidden, loginPageData{
 			Username:             req.Username,
 			ReturnTo:             req.ReturnTo,
-			Error:                "リクエストの整合性検証に失敗しました。",
+			Error:                "CSRF validation failed.",
 			FederatedOIDCEnabled: h.federatedOIDCEnabled,
 		})
 		return
