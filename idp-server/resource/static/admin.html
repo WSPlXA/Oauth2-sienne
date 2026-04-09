@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["Manrope", "sans-serif"]
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body class="min-h-screen bg-[radial-gradient(circle_at_12%_10%,#dbeafe_0%,transparent_30%),radial-gradient(circle_at_88%_14%,#dcfce7_0%,transparent_28%),linear-gradient(135deg,#f8fafc_0%,#eef2ff_50%,#f0fdfa_100%)] text-slate-900">
+  <div class="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <header class="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur sm:p-8">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p class="text-xs font-bold uppercase tracking-[0.22em] text-slate-500">Sienne IDP</p>
+          <h1 class="mt-2 text-3xl font-extrabold tracking-tight">Admin Console</h1>
+          <p class="mt-2 text-sm text-slate-600">RBAC status and privileged operations entrypoint.</p>
+        </div>
+        <a href="/connect/logout" class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i>
+          Sign Out
+        </a>
+      </div>
+
+      <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p class="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Operator</p>
+          <p class="mt-2 font-bold text-slate-900">{{if .Username}}{{.Username}}{{else}}unknown{{end}}</p>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p class="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Role Code</p>
+          <p class="mt-2 font-bold text-slate-900">{{if .RoleCode}}{{.RoleCode}}{{else}}-{{end}}</p>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p class="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Privilege Mask</p>
+          <p class="mt-2 font-mono font-bold text-slate-900">{{.PrivilegeMask}}</p>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p class="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Tenant Scope</p>
+          <p class="mt-2 font-bold text-slate-900">{{if .TenantScope}}{{.TenantScope}}{{else}}global{{end}}</p>
+        </div>
+      </div>
+
+      {{if .Error}}
+      <div class="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <i class="fa-solid fa-circle-exclamation mr-2"></i>{{.Error}}
+      </div>
+      {{end}}
+    </header>
+
+    <section class="mt-6 grid gap-6 lg:grid-cols-2">
+      <article class="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-xl font-extrabold tracking-tight">Roles</h2>
+          <a href="/admin/rbac/roles" class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-700 hover:underline">JSON</a>
+        </div>
+        <div class="mt-4 overflow-x-auto">
+          <table class="w-full min-w-[520px] text-left text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 text-xs uppercase tracking-[0.14em] text-slate-500">
+                <th class="px-2 py-2">Role</th>
+                <th class="px-2 py-2">Display Name</th>
+                <th class="px-2 py-2">Mask</th>
+                <th class="px-2 py-2">System</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Roles}}
+              <tr class="border-b border-slate-100 align-top">
+                <td class="px-2 py-2 font-semibold text-slate-900">{{.RoleCode}}</td>
+                <td class="px-2 py-2 text-slate-700">{{.DisplayName}}</td>
+                <td class="px-2 py-2 font-mono text-slate-700">{{.PrivilegeMask}}</td>
+                <td class="px-2 py-2 text-slate-700">{{if .IsSystem}}yes{{else}}no{{end}}</td>
+              </tr>
+              {{else}}
+              <tr><td class="px-2 py-3 text-slate-500" colspan="4">No roles found.</td></tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-xl font-extrabold tracking-tight">Role Usage</h2>
+          <a href="/admin/rbac/usage" class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-700 hover:underline">JSON</a>
+        </div>
+        <div class="mt-4 overflow-x-auto">
+          <table class="w-full min-w-[520px] text-left text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 text-xs uppercase tracking-[0.14em] text-slate-500">
+                <th class="px-2 py-2">Role</th>
+                <th class="px-2 py-2">Users</th>
+                <th class="px-2 py-2">Mask</th>
+                <th class="px-2 py-2">System</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Usage}}
+              <tr class="border-b border-slate-100 align-top">
+                <td class="px-2 py-2 font-semibold text-slate-900">{{.RoleCode}}</td>
+                <td class="px-2 py-2 text-slate-700">{{.UserCount}}</td>
+                <td class="px-2 py-2 font-mono text-slate-700">{{.PrivilegeMask}}</td>
+                <td class="px-2 py-2 text-slate-700">{{if .IsSystem}}yes{{else}}no{{end}}</td>
+              </tr>
+              {{else}}
+              <tr><td class="px-2 py-3 text-slate-500" colspan="4">No usage data found.</td></tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  </div>
+</body>
+</html>

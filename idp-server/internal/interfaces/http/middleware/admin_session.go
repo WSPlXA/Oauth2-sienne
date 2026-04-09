@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -42,17 +43,17 @@ func (m *SessionPermissionMiddleware) RequireSessionPermissions(required ...uint
 		sessionID, _ := c.Cookie("idp_session")
 		sessionID = strings.TrimSpace(sessionID)
 		if sessionID == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "login required"})
+			m.abortUnauthorized(c, "login required")
 			return
 		}
 
 		sessionModel, err := m.findSession(c, sessionID)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
+			m.abortUnauthorized(c, "invalid session")
 			return
 		}
 		if sessionModel == nil || sessionModel.LoggedOutAt != nil || !sessionModel.ExpiresAt.After(m.now()) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session expired"})
+			m.abortUnauthorized(c, "session expired")
 			return
 		}
 
@@ -74,6 +75,15 @@ func (m *SessionPermissionMiddleware) RequireSessionPermissions(required ...uint
 		c.Set(ContextAdminSession, sessionModel)
 		c.Next()
 	}
+}
+
+func (m *SessionPermissionMiddleware) abortUnauthorized(c *gin.Context, message string) {
+	if wantsAdminHTML(c.GetHeader("Accept")) {
+		c.Redirect(http.StatusFound, "/login?return_to="+url.QueryEscape(c.Request.URL.RequestURI()))
+		c.Abort()
+		return
+	}
+	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": message})
 }
 
 func (m *SessionPermissionMiddleware) findSession(c *gin.Context, sessionID string) (*sessiondomain.Model, error) {
@@ -108,6 +118,11 @@ func mustParseInt64(value string) int64 {
 		result = result*10 + int64(ch-'0')
 	}
 	return result
+}
+
+func wantsAdminHTML(accept string) bool {
+	accept = strings.ToLower(strings.TrimSpace(accept))
+	return strings.Contains(accept, "text/html")
 }
 
 func CurrentAdminUser(c *gin.Context) *userdomain.Model {

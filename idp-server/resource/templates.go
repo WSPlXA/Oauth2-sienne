@@ -15,4 +15,5 @@ var DevicePageTemplate = template.Must(template.ParseFS(staticFiles, "static/dev
 var TOTPSetupTemplate = template.Must(template.ParseFS(staticFiles, "static/totp_setup.html"))
 var LogoutPageTemplate = template.Must(template.ParseFS(staticFiles, "static/logout.html"))
 var RegisterPageTemplate = template.Must(template.ParseFS(staticFiles, "static/register.html"))
+var AdminConsoleTemplate = template.Must(template.ParseFS(staticFiles, "static/admin.html"))
 var NotFoundTemplate = template.Must(template.ParseFS(staticFiles, "static/404.html"))

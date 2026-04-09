@@ -154,3 +154,30 @@ func TestRequireSessionPermissionsRejectsInsufficientPrivilege(t *testing.T) {
 		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusForbidden)
 	}
 }
+
+func TestRequireSessionPermissionsRedirectsHTMLWhenSessionMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	mw := NewSessionPermissionMiddleware(
+		&stubAdminSessionRepository{},
+		&stubAdminSessionCache{},
+		&stubAdminUserRepository{},
+	)
+
+	router.GET("/admin", mw.RequireSessionPermissions(rbac.AuthExec), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.Header.Set("Accept", "text/html")
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusFound)
+	}
+	if got := recorder.Header().Get("Location"); got != "/login?return_to=%2Fadmin" {
+		t.Fatalf("location = %q, want /login?return_to=%%2Fadmin", got)
+	}
+}

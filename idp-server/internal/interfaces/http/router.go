@@ -59,6 +59,7 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 	logoutHandler := handler.NewLogoutHandler(sessionService)
 	logoutAllHandler := handler.NewLogoutAllHandler(sessionService)
 	adminUserLogoutHandler := handler.NewAdminUserLogoutHandler(sessionService, auditRepo)
+	adminConsoleHandler := handler.NewAdminConsoleHandler(rbacService)
 	rbacHandler := handler.NewRBACHandler(rbacService, auditRepo)
 	totpSetupHandler := handler.NewTOTPSetupHandler(mfaService)
 	endSessionHandler := handler.NewEndSessionHandler(sessionService, logoutRedirectValidator)
@@ -109,16 +110,17 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 
 	if adminMiddleware != nil {
 		admin := router.Group("/admin")
-		admin.Use(adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.UserManage))
-		admin.GET("/rbac/roles", rbacHandler.ListRoles)
-		admin.GET("/rbac/roles/:role_code/users", rbacHandler.ListUsersByRole)
-		admin.GET("/rbac/usage", rbacHandler.RoleUsage)
-		admin.POST("/rbac/bootstrap", adminMiddleware.RequireSessionPermissions(rbac.OpsManage), rbacHandler.Bootstrap)
-		admin.POST("/rbac/roles", adminMiddleware.RequireSessionPermissions(rbac.OpsManage), rbacHandler.CreateRole)
-		admin.PUT("/rbac/roles/:role_code", adminMiddleware.RequireSessionPermissions(rbac.OpsManage), rbacHandler.UpdateRole)
-		admin.DELETE("/rbac/roles/:role_code", adminMiddleware.RequireSessionPermissions(rbac.OpsManage), rbacHandler.DeleteRole)
-		admin.POST("/users/:user_id/role", rbacHandler.AssignRole)
-		admin.POST("/users/:user_id/logout-all", adminUserLogoutHandler.Handle)
+		admin.GET("", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsRead), adminConsoleHandler.Handle)
+		admin.GET("/", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsRead), adminConsoleHandler.Handle)
+		admin.GET("/rbac/roles", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsRead), rbacHandler.ListRoles)
+		admin.GET("/rbac/roles/:role_code/users", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsRead), rbacHandler.ListUsersByRole)
+		admin.GET("/rbac/usage", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsRead), rbacHandler.RoleUsage)
+		admin.POST("/rbac/bootstrap", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsManage), rbacHandler.Bootstrap)
+		admin.POST("/rbac/roles", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsManage), rbacHandler.CreateRole)
+		admin.PUT("/rbac/roles/:role_code", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsManage), rbacHandler.UpdateRole)
+		admin.DELETE("/rbac/roles/:role_code", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsManage), rbacHandler.DeleteRole)
+		admin.POST("/users/:user_id/role", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.UserManage), rbacHandler.AssignRole)
+		admin.POST("/users/:user_id/logout-all", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.UserManage), adminUserLogoutHandler.Handle)
 	}
 
 	return router
