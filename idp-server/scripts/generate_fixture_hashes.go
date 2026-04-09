@@ -14,6 +14,10 @@ func main() {
 	}{
 		{Name: "alice", Plain: "alice123"},
 		{Name: "bob", Plain: "bob123"},
+		{Name: "charlie", Plain: "charlie123"},
+		{Name: "olivia", Plain: "olivia123"},
+		{Name: "sam", Plain: "sam123"},
+		{Name: "song", Plain: "Gaosong8017"},
 		{Name: "locked_user", Plain: "locked123"},
 		{Name: "web-client", Plain: "secret123"},
 		{Name: "service-client", Plain: "service123"},

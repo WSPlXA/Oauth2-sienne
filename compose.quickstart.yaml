@@ -11,6 +11,7 @@ services:
       MYSQL_PASSWORD: ${IDP_MYSQL_PASSWORD:-ChangeThisAppPassword_32CharsMin}
     volumes:
       - idp-mysql-data:/var/lib/mysql
+      - ./idp-server/scripts/migrate.sql:/docker-entrypoint-initdb.d/001-migrate.sql:ro
     healthcheck:
       test: [ "CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent" ]
       interval: 10s

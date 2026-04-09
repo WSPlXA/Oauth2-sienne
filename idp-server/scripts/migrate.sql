@@ -382,6 +382,14 @@ CREATE TABLE audit_events (
 -- Password hashes below are placeholders.
 -- Fixture hashes below are generated through scripts/generate_fixture_hashes.go,
 -- which uses the app PasswordVerifier implementation.
+-- Login fixtures:
+-- alice/alice123 (super_admin)
+-- bob/bob123 (support)
+-- charlie/charlie123 (end_user)
+-- olivia/olivia123 (oauth_admin)
+-- sam/sam123 (security_admin)
+-- song/Gaosong8017 (super_admin)
+-- locked_user/locked123 (locked sample)
 -- =========================================================
 
 -- Users
@@ -423,6 +431,62 @@ VALUES (
         '$2a$10$AzOHkvRQLxp6R22izS9VkeZiHDXLEucXUwS.QRuSdGPKdfOGyeeW6',
         'support',
         3431757964,
+        NULL,
+        'active',
+        0,
+        NULL
+    ),
+    (
+        '44444444-4444-4444-4444-444444444444',
+        'charlie',
+        'charlie@example.com',
+        1,
+        'Charlie',
+        '$2a$10$iNa0p/QBLKTebcbZ5bVRc.lYnHHosdjD78L3sYxTLqSAlVFCTLFy2',
+        'end_user',
+        0,
+        NULL,
+        'active',
+        0,
+        NULL
+    ),
+    (
+        '55555555-5555-5555-5555-555555555555',
+        'olivia',
+        'olivia@example.com',
+        1,
+        'Olivia',
+        '$2a$10$Y88RfGZ/0/C3qVpKHHoyKudihMdNTnRLAa8ebss4.zue6DTLFGeve',
+        'oauth_admin',
+        2397851784,
+        NULL,
+        'active',
+        0,
+        NULL
+    ),
+    (
+        '66666666-6666-6666-6666-666666666666',
+        'sam',
+        'sam@example.com',
+        1,
+        'Sam',
+        '$2a$10$ia8dnRvgAe5qhu570Ji/M.DI209cUBpdpUMGJ3xGWvaVLioS0zPya',
+        'security_admin',
+        4008633070,
+        NULL,
+        'active',
+        0,
+        NULL
+    ),
+    (
+        '77777777-7777-7777-7777-777777777777',
+        'song',
+        'song@example.com',
+        1,
+        'Song',
+        '$2a$10$xVBHx4TMUnbfewKiM1fzu./CAoU8iEqOPyWDn4Yrua8hNOtkgGJpe',
+        'super_admin',
+        4294967295,
         NULL,
         'active',
         0,
