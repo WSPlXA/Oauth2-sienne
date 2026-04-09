@@ -19,6 +19,7 @@ type userRepositorySQLSet struct {
 	listByRoleCode                 string
 	countByRoleCode                string
 	updateRoleAndPrivilege         string
+	updatePasswordHash             string
 	incrementFailedLogin           string
 	selectFailedLoginCountByUserID string
 	resetFailedLogin               string
@@ -36,6 +37,7 @@ func mustLoadUserRepositorySQL() userRepositorySQLSet {
 		listByRoleCode:                 mustReadUserRepositorySQL("list_by_role_code.sql"),
 		countByRoleCode:                mustReadUserRepositorySQL("count_by_role_code.sql"),
 		updateRoleAndPrivilege:         mustReadUserRepositorySQL("update_role_and_privilege.sql"),
+		updatePasswordHash:             mustReadUserRepositorySQL("update_password_hash.sql"),
 		incrementFailedLogin:           mustReadUserRepositorySQL("increment_failed_login.sql"),
 		selectFailedLoginCountByUserID: mustReadUserRepositorySQL("select_failed_login_count_by_user_id.sql"),
 		resetFailedLogin:               mustReadUserRepositorySQL("reset_failed_login.sql"),

@@ -104,6 +104,11 @@ func (r *UserRepository) UpdateRoleAndPrivilege(ctx context.Context, id int64, r
 	return err
 }
 
+func (r *UserRepository) UpdatePasswordHash(ctx context.Context, id int64, passwordHash string, updatedAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, userRepositorySQL.updatePasswordHash, passwordHash, updatedAt, id)
+	return err
+}
+
 func (r *UserRepository) IncrementFailedLogin(ctx context.Context, id int64) (int64, error) {
 	if _, err := r.db.ExecContext(ctx, userRepositorySQL.incrementFailedLogin, id); err != nil {
 		return 0, err

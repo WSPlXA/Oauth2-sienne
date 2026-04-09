@@ -6,9 +6,12 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	appclient "idp-server/internal/application/client"
+	appkeys "idp-server/internal/application/keys"
 	apprbac "idp-server/internal/application/rbac"
+	appregister "idp-server/internal/application/register"
 	appsession "idp-server/internal/application/session"
 	"idp-server/internal/ports/repository"
 
@@ -21,6 +24,8 @@ type AdminActionHandler struct {
 	clientCreator                   appclient.Creator
 	clientRedirectRegistrar         appclient.Registrar
 	clientPostLogoutRedirectManager appclient.PostLogoutRegistrar
+	passwordResetter                appregister.PasswordResetter
+	keysService                     appkeys.Manager
 	audit                           repository.AuditEventRepository
 }
 
@@ -30,6 +35,8 @@ func NewAdminActionHandler(
 	clientCreator appclient.Creator,
 	clientRedirectRegistrar appclient.Registrar,
 	clientPostLogoutRedirectManager appclient.PostLogoutRegistrar,
+	passwordResetter appregister.PasswordResetter,
+	keysService appkeys.Manager,
 	audit repository.AuditEventRepository,
 ) *AdminActionHandler {
 	return &AdminActionHandler{
@@ -38,6 +45,8 @@ func NewAdminActionHandler(
 		clientCreator:                   clientCreator,
 		clientRedirectRegistrar:         clientRedirectRegistrar,
 		clientPostLogoutRedirectManager: clientPostLogoutRedirectManager,
+		passwordResetter:                passwordResetter,
+		keysService:                     keysService,
 		audit:                           audit,
 	}
 }
@@ -231,6 +240,63 @@ func (h *AdminActionHandler) LogoutUser(c *gin.Context) {
 		"revoked_refresh_tokens": result.RevokedRefreshTokens,
 	})
 	h.redirectWithNotice(c, fmt.Sprintf("user %d has been logged out from all sessions", userID))
+}
+
+func (h *AdminActionHandler) ChangeUserPassword(c *gin.Context) {
+	if err := validateCSRFToken(c, c.PostForm("csrf_token")); err != nil {
+		h.redirectWithError(c, errInvalidCSRFToken.Error())
+		return
+	}
+	if h.passwordResetter == nil {
+		h.redirectWithError(c, "password reset service unavailable")
+		return
+	}
+	userID, err := parseInt64Field(c.PostForm("user_id"), "user_id")
+	if err != nil {
+		h.redirectWithError(c, err.Error())
+		return
+	}
+	newPassword := c.PostForm("new_password")
+	result, err := h.passwordResetter.AdminResetPassword(c.Request.Context(), appregister.AdminResetPasswordInput{
+		UserID:      userID,
+		NewPassword: newPassword,
+	})
+	if err != nil {
+		h.redirectWithError(c, "change password failed: "+err.Error())
+		return
+	}
+	recordAdminAuditEvent(c.Request.Context(), h.audit, currentAdminAuditContext(c), "auth.user.password_changed.admin", "user:"+strconv.FormatInt(result.UserID, 10), map[string]any{
+		"target_user_id":  result.UserID,
+		"username":        result.Username,
+		"password_set_at": result.PasswordSetAt.Format(time.RFC3339),
+	})
+	h.redirectWithNotice(c, fmt.Sprintf("password changed for user %d", result.UserID))
+}
+
+func (h *AdminActionHandler) RotateSigningKey(c *gin.Context) {
+	if err := validateCSRFToken(c, c.PostForm("csrf_token")); err != nil {
+		h.redirectWithError(c, errInvalidCSRFToken.Error())
+		return
+	}
+	if h.keysService == nil {
+		h.redirectWithError(c, "key rotation service unavailable")
+		return
+	}
+	result, err := h.keysService.RotateNow(c.Request.Context(), appkeys.RotateKeysInput{})
+	if err != nil {
+		h.redirectWithError(c, "manual key rotation failed: "+err.Error())
+		return
+	}
+	metadata := map[string]any{
+		"previous_kid": result.PreviousKID,
+		"active_kid":   result.ActiveKID,
+		"rotated_at":   result.RotatedAt.Format(time.RFC3339),
+	}
+	if result.RotatesAt != nil {
+		metadata["next_rotate_at"] = result.RotatesAt.Format(time.RFC3339)
+	}
+	recordAdminAuditEvent(c.Request.Context(), h.audit, currentAdminAuditContext(c), "key.rotation.manual", "key:"+result.ActiveKID, metadata)
+	h.redirectWithNotice(c, "manual key rotation completed: active kid "+result.ActiveKID)
 }
 
 func (h *AdminActionHandler) CreateOAuthClient(c *gin.Context) {

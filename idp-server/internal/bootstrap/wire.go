@@ -16,6 +16,7 @@ import (
 	appclientauth "idp-server/internal/application/clientauth"
 	appconsent "idp-server/internal/application/consent"
 	appdevice "idp-server/internal/application/device"
+	appkeys "idp-server/internal/application/keys"
 	appmfa "idp-server/internal/application/mfa"
 	"idp-server/internal/application/oidc"
 	apppasskey "idp-server/internal/application/passkey"
@@ -206,9 +207,21 @@ func Wire() (*App, error) {
 	oidcService := oidc.NewService(userRepo, tokenRepo, tokenCache, &jwtServiceAdapter{service: jwtService}, keyManagerAdapter{manager: keyManager}, cfg.Issuer)
 	authMiddleware := httpmiddleware.NewAuthMiddleware(&jwtMiddlewareAdapter{service: jwtService}, tokenCache, cfg.Issuer)
 	adminMiddleware := httpmiddleware.NewSessionPermissionMiddleware(sessionRepo, sessionCache, userRepo)
+	keysService := appkeys.NewService(func(ctx context.Context) (*appkeys.RotateKeysResult, error) {
+		result, err := infracrypto.RotateSigningKeyNow(ctx, jwkRepo, keyManager, rotationConfig)
+		if err != nil {
+			return nil, err
+		}
+		return &appkeys.RotateKeysResult{
+			PreviousKID: result.PreviousKID,
+			ActiveKID:   result.ActiveKID,
+			RotatedAt:   result.RotatedAt,
+			RotatesAt:   result.RotatesAt,
+		}, nil
+	})
 
 	return &App{
-		Router: interfacehttp.NewRouter(authzService, consentService, registerService, clientService, clientService, clientService, clientService, authnService, federatedOIDCProvider != nil, sessionService, rbacService, auditEventRepo, clientAuthenticator, grantRegistry, deviceService, mfaService, passkeyService, oidcService, authMiddleware, adminMiddleware),
+		Router: interfacehttp.NewRouter(authzService, consentService, registerService, registerService, clientService, clientService, clientService, clientService, authnService, federatedOIDCProvider != nil, sessionService, rbacService, keysService, auditEventRepo, clientAuthenticator, grantRegistry, deviceService, mfaService, passkeyService, oidcService, authMiddleware, adminMiddleware),
 	}, nil
 }
 

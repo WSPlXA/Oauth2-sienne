@@ -12,15 +12,17 @@ var (
 	ErrWeakPassword         = errors.New("password does not meet policy")
 	ErrUsernameAlreadyUsed  = errors.New("username already exists")
 	ErrEmailAlreadyUsed     = errors.New("email already exists")
+	ErrUserNotFound         = errors.New("user not found")
+	ErrPasswordUpdateFailed = errors.New("password update is not supported by repository")
 )
 
 type RegisterInput struct {
-	Username        string
-	Email           string
-	DisplayName     string
-	Password        string
-	EmailVerified   bool
-	AutoActivate    bool
+	Username      string
+	Email         string
+	DisplayName   string
+	Password      string
+	EmailVerified bool
+	AutoActivate  bool
 }
 
 type RegisterResult struct {
@@ -32,4 +34,15 @@ type RegisterResult struct {
 	DisplayName   string
 	Status        string
 	CreatedAt     time.Time
+}
+
+type AdminResetPasswordInput struct {
+	UserID      int64
+	NewPassword string
+}
+
+type AdminResetPasswordResult struct {
+	UserID        int64
+	Username      string
+	PasswordSetAt time.Time
 }

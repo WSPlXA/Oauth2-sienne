@@ -20,6 +20,10 @@ type Registrar interface {
 	Register(ctx context.Context, input RegisterInput) (*RegisterResult, error)
 }
 
+type PasswordResetter interface {
+	AdminResetPassword(ctx context.Context, input AdminResetPasswordInput) (*AdminResetPasswordResult, error)
+}
+
 type Service struct {
 	users     repository.UserRepository
 	passwords securityport.PasswordVerifier
@@ -107,6 +111,48 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*RegisterR
 		DisplayName:   model.DisplayName,
 		Status:        model.Status,
 		CreatedAt:     now,
+	}, nil
+}
+
+type passwordHashUpdater interface {
+	UpdatePasswordHash(ctx context.Context, id int64, passwordHash string, updatedAt time.Time) error
+}
+
+func (s *Service) AdminResetPassword(ctx context.Context, input AdminResetPasswordInput) (*AdminResetPasswordResult, error) {
+	if input.UserID <= 0 {
+		return nil, ErrUserNotFound
+	}
+	if !isStrongEnoughPassword(input.NewPassword) {
+		return nil, ErrWeakPassword
+	}
+	if s.passwords == nil {
+		return nil, ErrWeakPassword
+	}
+	updater, ok := s.users.(passwordHashUpdater)
+	if !ok {
+		return nil, ErrPasswordUpdateFailed
+	}
+
+	userModel, err := s.users.FindByID(ctx, input.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if userModel == nil {
+		return nil, ErrUserNotFound
+	}
+
+	passwordHash, err := s.passwords.HashPassword(input.NewPassword)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	if err := updater.UpdatePasswordHash(ctx, input.UserID, passwordHash, now); err != nil {
+		return nil, err
+	}
+	return &AdminResetPasswordResult{
+		UserID:        userModel.ID,
+		Username:      userModel.Username,
+		PasswordSetAt: now,
 	}, nil
 }
 

@@ -122,7 +122,9 @@ func (h *PortalHandler) SecurityWorkbench(c *gin.Context) {
 		Actions: []workbenchAction{
 			{Method: "GET", Path: "/mfa/totp/setup", Purpose: "Enroll or verify TOTP for the current operator account.", Required: "AUTH.EXEC"},
 			{Method: "POST", Path: "/oauth2/introspect", Purpose: "Inspect token activity during incident response.", Required: "AUDIT.READ"},
+			{Method: "POST", Path: "/admin/actions/users/change-password", Purpose: "Reset compromised account credentials and force next login with new secret.", Required: "USER.MANAGE + AUTH.EXEC"},
 			{Method: "POST", Path: "/admin/actions/users/logout-all", Purpose: "Force logout a compromised user account from all sessions.", Required: "USER.MANAGE + AUTH.EXEC"},
+			{Method: "POST", Path: "/admin/actions/keys/rotate", Purpose: "Force immediate signing key rotation for emergency trust reset.", Required: "KEY.MANAGE + AUTH.EXEC"},
 			{Method: "GET", Path: "/oauth2/jwks", Purpose: "Verify key rotation output for signing trust chain.", Required: "KEY.READ"},
 		},
 	})

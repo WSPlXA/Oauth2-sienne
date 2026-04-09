@@ -31,6 +31,13 @@ type RotationConfig struct {
 	KIDPrefix     string
 }
 
+type ManualRotateResult struct {
+	PreviousKID string
+	ActiveKID   string
+	RotatedAt   time.Time
+	RotatesAt   *time.Time
+}
+
 func EnsureKeyManager(ctx context.Context, repo rotationRepository, cfg RotationConfig) (*KeyManager, error) {
 	if err := ensureRotation(ctx, repo, cfg); err != nil {
 		return nil, err
@@ -60,8 +67,60 @@ func StartRotationLoop(repo rotationRepository, manager *KeyManager, cfg Rotatio
 }
 
 func ensureRotation(ctx context.Context, repo rotationRepository, cfg RotationConfig) error {
+	_, err := rotateKey(ctx, repo, cfg, false)
+	return err
+}
+
+func RotateSigningKeyNow(
+	ctx context.Context,
+	repo interface {
+		ListCurrent(ctx context.Context) ([]persistence.JWKKeyRecord, error)
+		CreateActiveKey(ctx context.Context, record persistence.JWKKeyRecord, retiresExistingAt time.Time) error
+	},
+	manager *KeyManager,
+	cfg RotationConfig,
+) (*ManualRotateResult, error) {
 	if repo == nil {
-		return fmt.Errorf("rotation repository is required")
+		return nil, fmt.Errorf("rotation repository is required")
+	}
+	previousRecords, err := repo.ListCurrent(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var previousKID string
+	if previous := findActiveKey(previousRecords); previous != nil {
+		previousKID = previous.KID
+	}
+	rotatedAt := time.Now().UTC()
+	if _, err := rotateKey(ctx, repo, cfg, true); err != nil {
+		return nil, err
+	}
+	if manager != nil {
+		refreshed, err := LoadKeyManagerFromRepository(ctx, repo, cfg.WorkingDir)
+		if err != nil {
+			return nil, err
+		}
+		manager.ReplaceWith(refreshed)
+	}
+	currentRecords, err := repo.ListCurrent(ctx)
+	if err != nil {
+		return nil, err
+	}
+	active := findActiveKey(currentRecords)
+	if active == nil {
+		return nil, fmt.Errorf("no active signing key")
+	}
+	return &ManualRotateResult{
+		PreviousKID: previousKID,
+		ActiveKID:   active.KID,
+		RotatedAt:   rotatedAt,
+		RotatesAt:   active.RotatesAt,
+	}, nil
+}
+
+func rotateKey(ctx context.Context, repo rotationRepository, cfg RotationConfig, force bool) (bool, error) {
+	if repo == nil {
+		return false, fmt.Errorf("rotation repository is required")
 	}
 	if cfg.KeyBits <= 0 {
 		cfg.KeyBits = 2048
@@ -78,32 +137,32 @@ func ensureRotation(ctx context.Context, repo rotationRepository, cfg RotationCo
 
 	records, err := repo.ListCurrent(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	now := time.Now().UTC()
 	active := findActiveKey(records)
-	if active != nil && active.RotatesAt != nil && active.RotatesAt.After(now.Add(cfg.RotateBefore)) {
-		return nil
+	if !force && active != nil && active.RotatesAt != nil && active.RotatesAt.After(now.Add(cfg.RotateBefore)) {
+		return false, nil
 	}
-	if active != nil && active.RotatesAt == nil {
-		return nil
+	if !force && active != nil && active.RotatesAt == nil {
+		return false, nil
 	}
 
 	newKey, err := rsa.GenerateKey(rand.Reader, cfg.KeyBits)
 	if err != nil {
-		return fmt.Errorf("generate signing key: %w", err)
+		return false, fmt.Errorf("generate signing key: %w", err)
 	}
 
 	kid := fmt.Sprintf("%s-%s", strings.TrimSpace(cfg.KIDPrefix), now.Format("20060102T150405Z"))
 	privateKeyRef, err := writePrivateKey(cfg, kid, newKey)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	publicJWK, err := buildPublicJWKJSON(kid, &newKey.PublicKey, DefaultJWTAlg, DefaultKeyUse)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	record := persistence.JWKKeyRecord{
@@ -118,7 +177,10 @@ func ensureRotation(ctx context.Context, repo rotationRepository, cfg RotationCo
 		RotatesAt:     ptrTime(now.Add(90 * 24 * time.Hour)),
 	}
 
-	return repo.CreateActiveKey(ctx, record, now.Add(cfg.RetireAfter))
+	if err := repo.CreateActiveKey(ctx, record, now.Add(cfg.RetireAfter)); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func findActiveKey(records []persistence.JWKKeyRecord) *persistence.JWKKeyRecord {

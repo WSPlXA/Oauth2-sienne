@@ -207,6 +207,21 @@
             <button class="inline-flex items-center justify-center rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white" type="submit">Logout All Sessions</button>
           </form>
 
+          <form method="post" action="/admin/actions/users/change-password" class="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <p class="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Change User Password</p>
+            <input name="user_id" placeholder="user_id" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            <input name="new_password" type="password" autocomplete="new-password" placeholder="new password (>=8 chars, letters + digits)" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            <button class="inline-flex items-center justify-center rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white" type="submit">Change Password</button>
+          </form>
+
+          <form method="post" action="/admin/actions/keys/rotate" class="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <p class="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Manual Signing Key Rotation</p>
+            <p class="text-xs text-slate-600">Rotate immediately and promote a new active signing key (requires KEY.MANAGE).</p>
+            <button class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white" type="submit">Rotate Signing Key Now</button>
+          </form>
+
           {{if .LookupUsers}}
           <div class="rounded-xl border border-slate-200 bg-white p-4 overflow-x-auto">
             <p class="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Users in role {{.LookupRole}}</p>
