@@ -106,6 +106,27 @@ func (h *LoginTOTPHandler) Handle(c *gin.Context) {
 	c.SetCookie(mfaChallengeCookieName, "", -1, "/", "", false, true)
 	maxAge := int(time.Until(result.ExpiresAt).Seconds())
 	c.SetCookie("idp_session", result.SessionID, maxAge, "/", "", false, true)
+	if result.MFAEnrollmentRequired {
+		targetReturnTo := result.ReturnTo
+		if targetReturnTo == "" {
+			targetReturnTo = result.RedirectURI
+		}
+		setupURI := buildMFASetupURI(targetReturnTo)
+		if wantsHTML(c.GetHeader("Accept")) {
+			c.Redirect(http.StatusFound, setupURI)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"session_id":               result.SessionID,
+			"user_id":                  result.UserID,
+			"subject":                  result.Subject,
+			"expires_at":               result.ExpiresAt,
+			"mfa_enrollment_required":  true,
+			"passkey_enrollment_first": true,
+			"redirect_uri":             setupURI,
+		})
+		return
+	}
 	redirectURI := result.ReturnTo
 	if redirectURI == "" {
 		redirectURI = result.RedirectURI

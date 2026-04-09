@@ -181,3 +181,42 @@ func TestLoginTOTPPasskeyFinishSetsSessionCookie(t *testing.T) {
 		t.Fatalf("response should indicate authenticated=true: %s", recorder.Body.String())
 	}
 }
+
+func TestLoginTOTPVerifyRedirectsToPasskeySetupWhenEnrollmentRequired(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &stubAuthenticator{
+		result: &authn.AuthenticateResult{
+			SessionID:             "session-totp-1",
+			UserID:                19,
+			Subject:               "user-19",
+			ReturnTo:              "/oauth2/authorize?client_id=web-client",
+			MFAEnrollmentRequired: true,
+			ExpiresAt:             time.Now().UTC().Add(30 * time.Minute),
+		},
+	}
+	router := gin.New()
+	router.POST("/login/totp", NewLoginTOTPHandler(service).Handle)
+
+	form := url.Values{}
+	form.Set("code", "123456")
+	csrfCookie, csrfToken := mustNewCSRFCookie(t)
+	form.Set("csrf_token", csrfToken)
+	req := httptest.NewRequest(http.MethodPost, "/login/totp", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(csrfCookie)
+	req.AddCookie(&http.Cookie{Name: mfaChallengeCookieName, Value: "challenge-1"})
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusFound)
+	}
+	if got := recorder.Header().Get("Location"); got != "/mfa/passkey/setup?return_to=%2Foauth2%2Fauthorize%3Fclient_id%3Dweb-client" {
+		t.Fatalf("location = %q", got)
+	}
+	if cookie := findCookie(recorder.Result().Cookies(), "idp_session"); cookie == nil || cookie.Value != "session-totp-1" {
+		t.Fatalf("idp_session cookie = %#v, want session-totp-1", cookie)
+	}
+}

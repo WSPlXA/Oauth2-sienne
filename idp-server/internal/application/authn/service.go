@@ -261,7 +261,20 @@ func (s *Service) VerifyTOTP(ctx context.Context, input VerifyTOTPInput) (*Authe
 	if err := s.mfaCache.DeleteMFAChallenge(ctx, challenge.ChallengeID); err != nil {
 		return nil, err
 	}
-	return s.createSession(ctx, user, pluginport.AuthnMethodTypePassword, challenge.IPAddress, challenge.UserAgent, challenge.RedirectURI, challenge.ReturnTo, now)
+	result, err := s.createSession(ctx, user, pluginport.AuthnMethodTypePassword, challenge.IPAddress, challenge.UserAgent, challenge.RedirectURI, challenge.ReturnTo, now)
+	if err != nil {
+		return nil, err
+	}
+	if s.passkey != nil && s.passkeyRepo != nil {
+		passkeyCredentialJSON, err := s.lookupPasskeyCredentialJSON(ctx, user.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(passkeyCredentialJSON) == 0 {
+			result.MFAEnrollmentRequired = true
+		}
+	}
+	return result, nil
 }
 
 func (s *Service) BeginMFAPasskey(ctx context.Context, input BeginMFAPasskeyInput) (*BeginMFAPasskeyResult, error) {
