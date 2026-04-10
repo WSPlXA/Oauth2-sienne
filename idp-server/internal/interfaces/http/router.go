@@ -28,7 +28,7 @@ import (
 	"idp-server/resource"
 )
 
-func NewRouter(authzService authz.Service, consentService appconsent.Manager, registerService appregister.Registrar, passwordResetter appregister.PasswordResetter, userRepo repository.UserRepository, clientCreator appclient.Creator, clientRedirectRegistrar appclient.Registrar, clientPostLogoutRedirectRegistrar appclient.PostLogoutRegistrar, logoutRedirectValidator appclient.LogoutRedirectValidator, authnService authn.Authenticator, federatedOIDCEnabled bool, sessionService appsession.Manager, rbacService apprbac.Manager, keysService appkeys.Manager, auditRepo repository.AuditEventRepository, clientAuthenticator appclientauth.Authenticator, grantRegistry *pluginregistry.GrantRegistry, deviceService *appdevice.Service, mfaService appmfa.Manager, passkeyService apppasskey.Manager, oidcService *oidc.Service, authMiddleware *middleware.AuthMiddleware, adminMiddleware *middleware.SessionPermissionMiddleware) *gin.Engine {
+func NewRouter(authzService authz.Service, consentService appconsent.Manager, registerService appregister.Registrar, passwordResetter appregister.PasswordResetter, accountUnlocker appregister.AccountUnlocker, userRepo repository.UserRepository, clientCreator appclient.Creator, clientRedirectRegistrar appclient.Registrar, clientPostLogoutRedirectRegistrar appclient.PostLogoutRegistrar, logoutRedirectValidator appclient.LogoutRedirectValidator, authnService authn.Authenticator, federatedOIDCEnabled bool, sessionService appsession.Manager, rbacService apprbac.Manager, keysService appkeys.Manager, auditRepo repository.AuditEventRepository, clientAuthenticator appclientauth.Authenticator, grantRegistry *pluginregistry.GrantRegistry, deviceService *appdevice.Service, mfaService appmfa.Manager, passkeyService apppasskey.Manager, oidcService *oidc.Service, authMiddleware *middleware.AuthMiddleware, adminMiddleware *middleware.SessionPermissionMiddleware) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(middleware.NewLoggingMiddleware(log.Default()).Handler())
@@ -56,13 +56,14 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 	registerHandler := handler.NewRegisterHandler(registerService)
 	clientRedirectURIHandler := handler.NewClientRedirectURIHandler(clientRedirectRegistrar)
 	clientPostLogoutRedirectURIHandler := handler.NewClientPostLogoutRedirectURIHandler(clientPostLogoutRedirectRegistrar)
-	loginHandler := handler.NewLoginHandler(authnService, federatedOIDCEnabled)
-	loginTOTPHandler := handler.NewLoginTOTPHandler(authnService)
+	loginHandler := handler.NewLoginHandler(authnService, federatedOIDCEnabled, auditRepo)
+	loginTOTPHandler := handler.NewLoginTOTPHandler(authnService, auditRepo)
 	loginPushHandler := handler.NewLoginPushHandler(authnService)
 	logoutHandler := handler.NewLogoutHandler(sessionService)
 	logoutAllHandler := handler.NewLogoutAllHandler(sessionService)
 	adminUserLogoutHandler := handler.NewAdminUserLogoutHandler(sessionService, auditRepo)
 	adminConsoleHandler := handler.NewAdminConsoleHandler(rbacService, userRepo)
+	auditConsoleHandler := handler.NewAuditConsoleHandler(auditRepo, userRepo)
 	adminUserLookupHandler := handler.NewAdminUserLookupHandler(userRepo)
 	adminActionHandler := handler.NewAdminActionHandler(
 		rbacService,
@@ -71,6 +72,7 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 		clientRedirectRegistrar,
 		clientPostLogoutRedirectRegistrar,
 		passwordResetter,
+		accountUnlocker,
 		keysService,
 		auditRepo,
 	)
@@ -151,6 +153,7 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 		admin.GET("/workbench/support", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsRead), portalHandler.SupportWorkbench)
 		admin.GET("/workbench/oauth", adminMiddleware.RequireSessionPermissions(rbac.OAuthRead, rbac.ClientRead), portalHandler.OAuthWorkbench)
 		admin.GET("/workbench/security", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.AuditRead, rbac.KeyRead), portalHandler.SecurityWorkbench)
+		admin.GET("/audit", adminMiddleware.RequireSessionPermissions(rbac.AuditRead), auditConsoleHandler.Handle)
 		admin.GET("/rbac/roles", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsRead), rbacHandler.ListRoles)
 		admin.GET("/rbac/roles/:role_code/users", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsRead), rbacHandler.ListUsersByRole)
 		admin.GET("/rbac/usage", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsRead), rbacHandler.RoleUsage)
@@ -168,6 +171,7 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 		admin.POST("/actions/users/assign-role", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.UserManage), adminActionHandler.AssignRole)
 		admin.POST("/actions/users/logout-all", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.UserManage), adminActionHandler.LogoutUser)
 		admin.POST("/actions/users/change-password", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.UserManage), adminActionHandler.ChangeUserPassword)
+		admin.POST("/actions/users/unlock", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.UserManage), adminActionHandler.UnlockUser)
 		admin.POST("/actions/keys/rotate", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.KeyManage), adminActionHandler.RotateSigningKey)
 		admin.POST("/actions/clients/create", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.ClientManage), adminActionHandler.CreateOAuthClient)
 		admin.POST("/actions/clients/redirect-uris", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.ClientManage), adminActionHandler.RegisterClientRedirectURIs)

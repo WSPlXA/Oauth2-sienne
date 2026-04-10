@@ -16,6 +16,7 @@ type UserRepository interface {
 	ListByRoleCode(ctx context.Context, roleCode string, limit int) ([]*user.Model, error)
 	CountByRoleCode(ctx context.Context, roleCode string) (int64, error)
 	UpdateRoleAndPrivilege(ctx context.Context, id int64, roleCode string, privilegeMask uint32, tenantScope string) error
+	UnlockAccount(ctx context.Context, id int64, updatedAt time.Time) error
 	IncrementFailedLogin(ctx context.Context, id int64) (int64, error)
 	ResetFailedLogin(ctx context.Context, id int64, lastLoginAt time.Time) error
 }

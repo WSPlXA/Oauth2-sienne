@@ -4,10 +4,12 @@ import (
 	"context"
 	"net/mail"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	userdomain "idp-server/internal/domain/user"
+	cacheport "idp-server/internal/ports/cache"
 	"idp-server/internal/ports/repository"
 	securityport "idp-server/internal/ports/security"
 
@@ -24,16 +26,26 @@ type PasswordResetter interface {
 	AdminResetPassword(ctx context.Context, input AdminResetPasswordInput) (*AdminResetPasswordResult, error)
 }
 
+type AccountUnlocker interface {
+	AdminUnlockUser(ctx context.Context, input AdminUnlockUserInput) (*AdminUnlockUserResult, error)
+}
+
 type Service struct {
 	users     repository.UserRepository
 	passwords securityport.PasswordVerifier
+	rateLimit cacheport.RateLimitRepository
 	now       func() time.Time
 }
 
-func NewService(users repository.UserRepository, passwords securityport.PasswordVerifier) *Service {
+func NewService(users repository.UserRepository, passwords securityport.PasswordVerifier, rateLimit ...cacheport.RateLimitRepository) *Service {
+	var repo cacheport.RateLimitRepository
+	if len(rateLimit) > 0 {
+		repo = rateLimit[0]
+	}
 	return &Service{
 		users:     users,
 		passwords: passwords,
+		rateLimit: repo,
 		now: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -118,6 +130,10 @@ type passwordHashUpdater interface {
 	UpdatePasswordHash(ctx context.Context, id int64, passwordHash string, updatedAt time.Time) error
 }
 
+type userAccountUnlocker interface {
+	UnlockAccount(ctx context.Context, id int64, updatedAt time.Time) error
+}
+
 func (s *Service) AdminResetPassword(ctx context.Context, input AdminResetPasswordInput) (*AdminResetPasswordResult, error) {
 	if input.UserID <= 0 {
 		return nil, ErrUserNotFound
@@ -153,6 +169,38 @@ func (s *Service) AdminResetPassword(ctx context.Context, input AdminResetPasswo
 		UserID:        userModel.ID,
 		Username:      userModel.Username,
 		PasswordSetAt: now,
+	}, nil
+}
+
+func (s *Service) AdminUnlockUser(ctx context.Context, input AdminUnlockUserInput) (*AdminUnlockUserResult, error) {
+	if input.UserID <= 0 {
+		return nil, ErrUserNotFound
+	}
+	unlocker, ok := s.users.(userAccountUnlocker)
+	if !ok {
+		return nil, ErrUserUnlockFailed
+	}
+	userModel, err := s.users.FindByID(ctx, input.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if userModel == nil {
+		return nil, ErrUserNotFound
+	}
+	now := s.now()
+	if err := unlocker.UnlockAccount(ctx, input.UserID, now); err != nil {
+		return nil, err
+	}
+	if s.rateLimit != nil {
+		_ = s.rateLimit.ClearUserLock(ctx, strconv.FormatInt(input.UserID, 10))
+		if username := strings.TrimSpace(userModel.Username); username != "" {
+			_ = s.rateLimit.ResetLoginFailByUser(ctx, username)
+		}
+	}
+	return &AdminUnlockUserResult{
+		UserID:     userModel.ID,
+		Username:   userModel.Username,
+		UnlockedAt: now,
 	}, nil
 }
 

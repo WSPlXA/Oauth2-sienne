@@ -52,6 +52,7 @@ type workbenchPageData struct {
 	CurrentRole   string
 	PrivilegeMask uint32
 	CanOpenRBAC   bool
+	CanOpenAudit  bool
 	Actions       []workbenchAction
 	OAuthTools    *oauthWorkbenchTools
 }
@@ -107,6 +108,7 @@ func (h *PortalHandler) SupportWorkbench(c *gin.Context) {
 		Actions: []workbenchAction{
 			{Method: "GET", Path: "/admin/rbac/usage", Purpose: "Check role usage counts before escalation.", Required: "OPS.READ"},
 			{Method: "GET", Path: "/admin/rbac/roles", Purpose: "Inspect role definitions and masks.", Required: "OPS.READ"},
+			{Method: "GET", Path: "/admin/audit", Purpose: "Inspect login timeline and privileged operation logs.", Required: "AUDIT.READ"},
 			{Method: "GET", Path: "/admin/users/lookup-by-username?username={name}", Purpose: "Resolve user_id quickly from username for admin operations.", Required: "USER.READ"},
 			{Method: "GET", Path: "/admin?role_code=support", Purpose: "Inspect users currently bound to support role.", Required: "OPS.READ"},
 		},
@@ -153,6 +155,7 @@ func (h *PortalHandler) renderWorkbench(c *gin.Context, data workbenchPageData) 
 		data.CurrentRole = adminUser.RoleCode
 		data.PrivilegeMask = adminUser.PrivilegeMask
 		data.CanOpenRBAC = rbac.HasAll(adminUser.PrivilegeMask, rbac.AuthExec, rbac.OpsRead)
+		data.CanOpenAudit = rbac.HasAll(adminUser.PrivilegeMask, rbac.AuditRead)
 	}
 	if !wantsHTML(c.GetHeader("Accept")) {
 		c.JSON(http.StatusOK, data)

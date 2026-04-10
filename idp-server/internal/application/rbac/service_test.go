@@ -85,6 +85,9 @@ func (s *stubRBACUserRepository) UpdateRoleAndPrivilege(_ context.Context, id in
 	s.updatedMask = privilegeMask
 	return nil
 }
+func (s *stubRBACUserRepository) UnlockAccount(context.Context, int64, time.Time) error {
+	return nil
+}
 func (s *stubRBACUserRepository) IncrementFailedLogin(context.Context, int64) (int64, error) {
 	return 0, nil
 }

@@ -64,6 +64,10 @@ func (s *stubAuthnUserRepository) UpdateRoleAndPrivilege(context.Context, int64,
 	return nil
 }
 
+func (s *stubAuthnUserRepository) UnlockAccount(context.Context, int64, time.Time) error {
+	return nil
+}
+
 func (s *stubAuthnUserRepository) IncrementFailedLogin(context.Context, int64) (int64, error) {
 	s.incrementFailedLoginCalls++
 	return s.incrementFailedLoginResult, nil
@@ -193,6 +197,14 @@ func (s *stubAuthnRateLimitRepository) SetUserLock(_ context.Context, userID str
 
 func (s *stubAuthnRateLimitRepository) IsUserLocked(_ context.Context, userID string) (bool, error) {
 	return s.lockedUsers[userID], nil
+}
+
+func (s *stubAuthnRateLimitRepository) ClearUserLock(_ context.Context, userID string) error {
+	if s.lockedUsers == nil {
+		return nil
+	}
+	delete(s.lockedUsers, userID)
+	return nil
 }
 
 type stubAuthnMFARepository struct {

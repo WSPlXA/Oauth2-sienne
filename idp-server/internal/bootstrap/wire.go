@@ -119,7 +119,7 @@ func Wire() (*App, error) {
 	totpProvider := infrasecurity.NewTOTPProvider()
 	authzService := authz.NewService(clientRepo, sessionRepo, authCodeRepo, consentRepo, 10*time.Minute)
 	consentService := appconsent.NewService(clientRepo, sessionRepo, sessionCache, consentRepo)
-	registerService := appregister.NewService(userRepo, passwordVerifier)
+	registerService := appregister.NewService(userRepo, passwordVerifier, rateLimitRepo)
 	clientService := appclient.NewService(clientRepo, passwordVerifier)
 	federatedOIDCProvider := buildFederatedOIDCProvider(cfg, replayProtectionRepo)
 	authnRegistry := pluginregistry.NewAuthnRegistry(
@@ -221,7 +221,7 @@ func Wire() (*App, error) {
 	})
 
 	return &App{
-		Router: interfacehttp.NewRouter(authzService, consentService, registerService, registerService, userRepo, clientService, clientService, clientService, clientService, authnService, federatedOIDCProvider != nil, sessionService, rbacService, keysService, auditEventRepo, clientAuthenticator, grantRegistry, deviceService, mfaService, passkeyService, oidcService, authMiddleware, adminMiddleware),
+		Router: interfacehttp.NewRouter(authzService, consentService, registerService, registerService, registerService, userRepo, clientService, clientService, clientService, clientService, authnService, federatedOIDCProvider != nil, sessionService, rbacService, keysService, auditEventRepo, clientAuthenticator, grantRegistry, deviceService, mfaService, passkeyService, oidcService, authMiddleware, adminMiddleware),
 	}, nil
 }
 

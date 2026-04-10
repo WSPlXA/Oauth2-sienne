@@ -14,6 +14,7 @@ var (
 	ErrEmailAlreadyUsed     = errors.New("email already exists")
 	ErrUserNotFound         = errors.New("user not found")
 	ErrPasswordUpdateFailed = errors.New("password update is not supported by repository")
+	ErrUserUnlockFailed     = errors.New("user unlock is not supported by repository")
 )
 
 type RegisterInput struct {
@@ -45,4 +46,14 @@ type AdminResetPasswordResult struct {
 	UserID        int64
 	Username      string
 	PasswordSetAt time.Time
+}
+
+type AdminUnlockUserInput struct {
+	UserID int64
+}
+
+type AdminUnlockUserResult struct {
+	UserID     int64
+	Username   string
+	UnlockedAt time.Time
 }

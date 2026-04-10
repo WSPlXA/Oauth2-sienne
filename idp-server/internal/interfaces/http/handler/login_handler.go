@@ -8,6 +8,7 @@ import (
 
 	"idp-server/internal/application/authn"
 	"idp-server/internal/interfaces/http/dto"
+	"idp-server/internal/ports/repository"
 	"idp-server/resource"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,7 @@ import (
 type LoginHandler struct {
 	authnService         authn.Authenticator
 	federatedOIDCEnabled bool
+	auditRepo            repository.AuditEventRepository
 }
 
 type loginPageData struct {
@@ -27,10 +29,15 @@ type loginPageData struct {
 	FederatedOIDCEnabled bool
 }
 
-func NewLoginHandler(authnService authn.Authenticator, federatedOIDCEnabled bool) *LoginHandler {
+func NewLoginHandler(authnService authn.Authenticator, federatedOIDCEnabled bool, auditRepo ...repository.AuditEventRepository) *LoginHandler {
+	var repo repository.AuditEventRepository
+	if len(auditRepo) > 0 {
+		repo = auditRepo[0]
+	}
 	return &LoginHandler{
 		authnService:         authnService,
 		federatedOIDCEnabled: federatedOIDCEnabled,
+		auditRepo:            repo,
 	}
 }
 
@@ -221,6 +228,7 @@ func (h *LoginHandler) handleAuthenticate(c *gin.Context, req dto.LoginRequest) 
 	}
 	maxAge := int(time.Until(result.ExpiresAt).Seconds())
 	c.SetCookie("idp_session", result.SessionID, maxAge, "/", "", false, true)
+	recordLoginSuccessAuditEvent(c.Request.Context(), h.auditRepo, c, result.UserID, result.Subject, result.RoleCode, req.Method, redirectURI)
 	log.Printf("login authenticate_succeeded method=%q ip=%s username=%q user_id=%d redirect_uri=%q", req.Method, c.ClientIP(), req.Username, result.UserID, redirectURI)
 	if redirectURI != "" {
 		c.Redirect(http.StatusFound, redirectURI)

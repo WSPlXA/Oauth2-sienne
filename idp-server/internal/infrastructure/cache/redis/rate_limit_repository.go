@@ -106,3 +106,7 @@ func (r *RateLimitRepository) IsUserLocked(ctx context.Context, userID string) (
 	exists, err := r.rdb.Exists(ctx, r.key.UserLock(userID)).Result()
 	return exists > 0, err
 }
+
+func (r *RateLimitRepository) ClearUserLock(ctx context.Context, userID string) error {
+	return r.rdb.Del(ctx, r.key.UserLock(userID)).Err()
+}

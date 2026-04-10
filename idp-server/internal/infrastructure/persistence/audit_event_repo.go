@@ -3,9 +3,11 @@ package persistence
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 
 	auditdomain "idp-server/internal/domain/audit"
+	repositoryport "idp-server/internal/ports/repository"
 )
 
 type AuditEventRepository struct {
@@ -56,4 +58,103 @@ func (r *AuditEventRepository) Create(ctx context.Context, model *auditdomain.Mo
 		model.ID = id
 	}
 	return nil
+}
+
+func (r *AuditEventRepository) List(ctx context.Context, input repositoryport.ListAuditEventsInput) ([]*auditdomain.Model, error) {
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	queryBuilder := strings.Builder{}
+	queryBuilder.WriteString(auditEventRepositorySQL.listBase)
+
+	args := make([]any, 0, 8)
+	conditions := make([]string, 0, 6)
+	if eventType := strings.TrimSpace(input.EventType); eventType != "" {
+		conditions = append(conditions, "event_type = ?")
+		args = append(args, eventType)
+	}
+	if input.UserID != nil && *input.UserID > 0 {
+		conditions = append(conditions, "user_id = ?")
+		args = append(args, *input.UserID)
+	}
+	if subject := strings.TrimSpace(input.Subject); subject != "" {
+		conditions = append(conditions, "subject LIKE ?")
+		args = append(args, "%"+subject+"%")
+	}
+	if input.From != nil {
+		conditions = append(conditions, "created_at >= ?")
+		args = append(args, *input.From)
+	}
+	if input.To != nil {
+		conditions = append(conditions, "created_at <= ?")
+		args = append(args, *input.To)
+	}
+	if len(conditions) > 0 {
+		queryBuilder.WriteString(" WHERE ")
+		queryBuilder.WriteString(strings.Join(conditions, " AND "))
+	}
+	queryBuilder.WriteString(" ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?")
+	args = append(args, limit, offset)
+
+	rows, err := r.db.QueryContext(ctx, queryBuilder.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("query audit events: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]*auditdomain.Model, 0, limit)
+	for rows.Next() {
+		var model auditdomain.Model
+		var clientID sql.NullInt64
+		var userID sql.NullInt64
+		var sessionID sql.NullInt64
+		var subject sql.NullString
+		var ipAddress sql.NullString
+		var userAgent sql.NullString
+		var metadata sql.NullString
+		if err := rows.Scan(
+			&model.ID,
+			&model.EventType,
+			&clientID,
+			&userID,
+			&subject,
+			&sessionID,
+			&ipAddress,
+			&userAgent,
+			&metadata,
+			&model.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan audit event: %w", err)
+		}
+		if clientID.Valid {
+			value := clientID.Int64
+			model.ClientID = &value
+		}
+		if userID.Valid {
+			value := userID.Int64
+			model.UserID = &value
+		}
+		if sessionID.Valid {
+			value := sessionID.Int64
+			model.SessionID = &value
+		}
+		model.Subject = subject.String
+		model.IPAddress = ipAddress.String
+		model.UserAgent = userAgent.String
+		model.MetadataJSON = strings.TrimSpace(metadata.String)
+		events = append(events, &model)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate audit events: %w", err)
+	}
+	return events, nil
 }

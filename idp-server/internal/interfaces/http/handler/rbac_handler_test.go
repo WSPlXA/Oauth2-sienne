@@ -13,6 +13,7 @@ import (
 	sessiondomain "idp-server/internal/domain/session"
 	userdomain "idp-server/internal/domain/user"
 	httpmiddleware "idp-server/internal/interfaces/http/middleware"
+	"idp-server/internal/ports/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,6 +26,45 @@ func (s *stubAuditEventRepository) Create(_ context.Context, model *auditdomain.
 	copyModel := *model
 	s.events = append(s.events, &copyModel)
 	return nil
+}
+
+func (s *stubAuditEventRepository) List(_ context.Context, input repository.ListAuditEventsInput) ([]*auditdomain.Model, error) {
+	return s.ListFiltered(input)
+}
+
+func (s *stubAuditEventRepository) ListFiltered(input repository.ListAuditEventsInput) ([]*auditdomain.Model, error) {
+	result := make([]*auditdomain.Model, 0, len(s.events))
+	for _, event := range s.events {
+		if event == nil {
+			continue
+		}
+		if input.EventType != "" && event.EventType != input.EventType {
+			continue
+		}
+		if input.UserID != nil {
+			if event.UserID == nil || *event.UserID != *input.UserID {
+				continue
+			}
+		}
+		if input.Subject != "" && !strings.Contains(event.Subject, input.Subject) {
+			continue
+		}
+		copyModel := *event
+		result = append(result, &copyModel)
+	}
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(result) {
+		return []*auditdomain.Model{}, nil
+	}
+	limit := input.Limit
+	if limit <= 0 || limit > len(result)-offset {
+		limit = len(result) - offset
+	}
+	result = result[offset : offset+limit]
+	return result, nil
 }
 
 type stubRBACManager struct {

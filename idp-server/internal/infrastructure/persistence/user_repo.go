@@ -104,6 +104,11 @@ func (r *UserRepository) UpdateRoleAndPrivilege(ctx context.Context, id int64, r
 	return err
 }
 
+func (r *UserRepository) UnlockAccount(ctx context.Context, id int64, updatedAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, userRepositorySQL.unlockAccount, updatedAt, id)
+	return err
+}
+
 func (r *UserRepository) UpdatePasswordHash(ctx context.Context, id int64, passwordHash string, updatedAt time.Time) error {
 	_, err := r.db.ExecContext(ctx, userRepositorySQL.updatePasswordHash, passwordHash, updatedAt, id)
 	return err

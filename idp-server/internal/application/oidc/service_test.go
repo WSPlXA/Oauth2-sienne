@@ -37,6 +37,9 @@ func (s *stubOIDCUserRepository) CountByRoleCode(context.Context, string) (int64
 func (s *stubOIDCUserRepository) UpdateRoleAndPrivilege(context.Context, int64, string, uint32, string) error {
 	return nil
 }
+func (s *stubOIDCUserRepository) UnlockAccount(context.Context, int64, time.Time) error {
+	return nil
+}
 func (s *stubOIDCUserRepository) IncrementFailedLogin(context.Context, int64) (int64, error) {
 	return 0, nil
 }

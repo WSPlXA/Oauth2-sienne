@@ -254,6 +254,14 @@
             <button class="inline-flex items-center justify-center rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white" type="submit">Change Password</button>
           </form>
 
+          <form method="post" action="/admin/actions/users/unlock" class="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <p class="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Unlock User Account</p>
+            <input name="user_id" placeholder="user_id" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            <p class="text-xs text-slate-600">Clears lock state and failed-login counters, and restores <span class="font-semibold">locked -> active</span>.</p>
+            <button class="inline-flex items-center justify-center rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white" type="submit">Unlock User</button>
+          </form>
+
           <form method="post" action="/admin/actions/keys/rotate" class="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
             <p class="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Manual Signing Key Rotation</p>

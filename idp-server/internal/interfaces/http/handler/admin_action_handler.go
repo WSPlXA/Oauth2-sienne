@@ -25,6 +25,7 @@ type AdminActionHandler struct {
 	clientRedirectRegistrar         appclient.Registrar
 	clientPostLogoutRedirectManager appclient.PostLogoutRegistrar
 	passwordResetter                appregister.PasswordResetter
+	accountUnlocker                 appregister.AccountUnlocker
 	keysService                     appkeys.Manager
 	audit                           repository.AuditEventRepository
 }
@@ -36,6 +37,7 @@ func NewAdminActionHandler(
 	clientRedirectRegistrar appclient.Registrar,
 	clientPostLogoutRedirectManager appclient.PostLogoutRegistrar,
 	passwordResetter appregister.PasswordResetter,
+	accountUnlocker appregister.AccountUnlocker,
 	keysService appkeys.Manager,
 	audit repository.AuditEventRepository,
 ) *AdminActionHandler {
@@ -46,6 +48,7 @@ func NewAdminActionHandler(
 		clientRedirectRegistrar:         clientRedirectRegistrar,
 		clientPostLogoutRedirectManager: clientPostLogoutRedirectManager,
 		passwordResetter:                passwordResetter,
+		accountUnlocker:                 accountUnlocker,
 		keysService:                     keysService,
 		audit:                           audit,
 	}
@@ -271,6 +274,35 @@ func (h *AdminActionHandler) ChangeUserPassword(c *gin.Context) {
 		"password_set_at": result.PasswordSetAt.Format(time.RFC3339),
 	})
 	h.redirectWithNotice(c, fmt.Sprintf("password changed for user %d", result.UserID))
+}
+
+func (h *AdminActionHandler) UnlockUser(c *gin.Context) {
+	if err := validateCSRFToken(c, c.PostForm("csrf_token")); err != nil {
+		h.redirectWithError(c, errInvalidCSRFToken.Error())
+		return
+	}
+	if h.accountUnlocker == nil {
+		h.redirectWithError(c, "unlock service unavailable")
+		return
+	}
+	userID, err := parseInt64Field(c.PostForm("user_id"), "user_id")
+	if err != nil {
+		h.redirectWithError(c, err.Error())
+		return
+	}
+	result, err := h.accountUnlocker.AdminUnlockUser(c.Request.Context(), appregister.AdminUnlockUserInput{
+		UserID: userID,
+	})
+	if err != nil {
+		h.redirectWithError(c, "unlock user failed: "+err.Error())
+		return
+	}
+	recordAdminAuditEvent(c.Request.Context(), h.audit, currentAdminAuditContext(c), "auth.user.unlocked.admin", "user:"+strconv.FormatInt(result.UserID, 10), map[string]any{
+		"target_user_id": result.UserID,
+		"username":       result.Username,
+		"unlocked_at":    result.UnlockedAt.Format(time.RFC3339),
+	})
+	h.redirectWithNotice(c, fmt.Sprintf("user %d unlocked", result.UserID))
 }
 
 func (h *AdminActionHandler) RotateSigningKey(c *gin.Context) {

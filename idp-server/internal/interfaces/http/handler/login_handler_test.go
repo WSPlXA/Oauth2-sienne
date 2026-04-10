@@ -178,6 +178,46 @@ func TestLoginHandlerHandlePostRedirectsByRoleWhenReturnToMissing(t *testing.T) 
 	}
 }
 
+func TestLoginHandlerHandlePostSuccessWritesAuditEvent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &stubAuthenticator{
+		result: &authn.AuthenticateResult{
+			SessionID: "session-audit-1",
+			UserID:    12,
+			Subject:   "user-12",
+			RoleCode:  "support",
+			ExpiresAt: time.Now().Add(30 * time.Minute),
+		},
+	}
+	auditRepo := &stubAuditEventRepository{}
+	router := gin.New()
+	router.POST("/login", NewLoginHandler(service, false, auditRepo).Handle)
+
+	form := url.Values{}
+	form.Set("username", "bob")
+	form.Set("password", "bob123")
+	csrfCookie, csrfToken := mustNewCSRFCookie(t)
+	form.Set("csrf_token", csrfToken)
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(csrfCookie)
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusFound)
+	}
+	if len(auditRepo.events) != 1 {
+		t.Fatalf("audit event count = %d, want 1", len(auditRepo.events))
+	}
+	if auditRepo.events[0].EventType != "auth.login.succeeded" {
+		t.Fatalf("audit event type = %q, want auth.login.succeeded", auditRepo.events[0].EventType)
+	}
+}
+
 func TestLoginHandlerHandlePostRedirectsToMFASetupWhenEnrollmentRequired(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

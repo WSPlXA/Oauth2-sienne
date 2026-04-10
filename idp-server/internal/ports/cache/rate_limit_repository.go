@@ -16,4 +16,5 @@ type RateLimitRepository interface {
 
 	SetUserLock(ctx context.Context, userID string, ttl time.Duration) error
 	IsUserLocked(ctx context.Context, userID string) (bool, error)
+	ClearUserLock(ctx context.Context, userID string) error
 }

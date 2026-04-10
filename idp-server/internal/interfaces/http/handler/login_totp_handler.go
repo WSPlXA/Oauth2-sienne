@@ -9,6 +9,7 @@ import (
 
 	"idp-server/internal/application/authn"
 	"idp-server/internal/interfaces/http/dto"
+	"idp-server/internal/ports/repository"
 	"idp-server/resource"
 
 	"github.com/gin-gonic/gin"
@@ -18,6 +19,7 @@ const mfaChallengeCookieName = "idp_mfa_challenge"
 
 type LoginTOTPHandler struct {
 	authnService authn.Authenticator
+	auditRepo    repository.AuditEventRepository
 }
 
 const defaultPostLoginRedirect = "/"
@@ -32,8 +34,12 @@ type loginTOTPPageData struct {
 	PushCode       string
 }
 
-func NewLoginTOTPHandler(authnService authn.Authenticator) *LoginTOTPHandler {
-	return &LoginTOTPHandler{authnService: authnService}
+func NewLoginTOTPHandler(authnService authn.Authenticator, auditRepo ...repository.AuditEventRepository) *LoginTOTPHandler {
+	var repo repository.AuditEventRepository
+	if len(auditRepo) > 0 {
+		repo = auditRepo[0]
+	}
+	return &LoginTOTPHandler{authnService: authnService, auditRepo: repo}
 }
 
 func (h *LoginTOTPHandler) Handle(c *gin.Context) {
@@ -125,6 +131,7 @@ func (h *LoginTOTPHandler) Handle(c *gin.Context) {
 		return
 	}
 	redirectURI := resolveBrowserPostLoginRedirect(result.ReturnTo, result.RedirectURI, result.RoleCode)
+	recordLoginSuccessAuditEvent(c.Request.Context(), h.auditRepo, c, result.UserID, result.Subject, result.RoleCode, "totp", redirectURI)
 	if redirectURI != "" {
 		c.Redirect(http.StatusFound, redirectURI)
 		return
@@ -211,6 +218,7 @@ func (h *LoginTOTPHandler) handlePasskeyFinish(c *gin.Context, req dto.LoginTOTP
 	if redirectURI == "" {
 		redirectURI = defaultPostLoginRedirect
 	}
+	recordLoginSuccessAuditEvent(c.Request.Context(), h.auditRepo, c, result.UserID, result.Subject, result.RoleCode, "passkey", redirectURI)
 	c.JSON(http.StatusOK, gin.H{
 		"authenticated": true,
 		"redirect_uri":  redirectURI,
@@ -295,6 +303,7 @@ func (h *LoginTOTPHandler) writePushStatus(c *gin.Context) {
 			if redirectURI == "" {
 				redirectURI = defaultPostLoginRedirect
 			}
+			recordLoginSuccessAuditEvent(c.Request.Context(), h.auditRepo, c, result.UserID, result.Subject, result.RoleCode, "push", redirectURI)
 			c.JSON(http.StatusOK, gin.H{
 				"authenticated":     true,
 				"status":            authn.MFAPushStatusApproved,

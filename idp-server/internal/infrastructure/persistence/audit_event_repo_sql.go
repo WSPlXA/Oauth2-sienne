@@ -11,14 +11,16 @@ import (
 var auditEventRepositorySQLFS embed.FS
 
 type auditEventRepositorySQLSet struct {
-	create string
+	create   string
+	listBase string
 }
 
 var auditEventRepositorySQL = mustLoadAuditEventRepositorySQL()
 
 func mustLoadAuditEventRepositorySQL() auditEventRepositorySQLSet {
 	return auditEventRepositorySQLSet{
-		create: mustReadAuditEventRepositorySQL("create.sql"),
+		create:   mustReadAuditEventRepositorySQL("create.sql"),
+		listBase: mustReadAuditEventRepositorySQL("list_base.sql"),
 	}
 }
 
