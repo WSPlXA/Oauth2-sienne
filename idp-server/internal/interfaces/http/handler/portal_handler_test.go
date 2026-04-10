@@ -35,11 +35,14 @@ func TestOAuthWorkbenchRendersQuickExecuteForms(t *testing.T) {
 	if !strings.Contains(body, `id="oauth-register-redirect-form"`) {
 		t.Fatalf("body should contain redirect registration form, got: %s", body)
 	}
-	if !strings.Contains(body, `href="/.well-known/openid-configuration"`) {
-		t.Fatalf("body should contain discovery link, got: %s", body)
+	if !strings.Contains(body, `data-read-endpoint="/.well-known/openid-configuration"`) {
+		t.Fatalf("body should contain discovery read button endpoint, got: %s", body)
 	}
-	if !strings.Contains(body, `href="/oauth2/jwks"`) {
-		t.Fatalf("body should contain jwks link, got: %s", body)
+	if !strings.Contains(body, `data-read-endpoint="/oauth2/jwks"`) {
+		t.Fatalf("body should contain jwks read button endpoint, got: %s", body)
+	}
+	if !strings.Contains(body, `id="oauth-read-result"`) {
+		t.Fatalf("body should contain oauth read result panel, got: %s", body)
 	}
 }
 
