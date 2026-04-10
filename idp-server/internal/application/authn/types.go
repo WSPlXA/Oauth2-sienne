@@ -60,6 +60,7 @@ type AuthenticateResult struct {
 	SessionID             string
 	UserID                int64
 	Subject               string
+	RoleCode              string
 	RedirectURI           string
 	ReturnTo              string
 	MFARequired           bool

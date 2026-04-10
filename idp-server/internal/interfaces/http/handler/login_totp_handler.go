@@ -107,10 +107,7 @@ func (h *LoginTOTPHandler) Handle(c *gin.Context) {
 	maxAge := int(time.Until(result.ExpiresAt).Seconds())
 	c.SetCookie("idp_session", result.SessionID, maxAge, "/", "", false, true)
 	if result.MFAEnrollmentRequired {
-		targetReturnTo := result.ReturnTo
-		if targetReturnTo == "" {
-			targetReturnTo = result.RedirectURI
-		}
+		targetReturnTo := resolveBrowserPostLoginRedirect(result.ReturnTo, result.RedirectURI, result.RoleCode)
 		setupURI := buildMFASetupURI(targetReturnTo)
 		if wantsHTML(c.GetHeader("Accept")) {
 			c.Redirect(http.StatusFound, setupURI)
@@ -127,10 +124,7 @@ func (h *LoginTOTPHandler) Handle(c *gin.Context) {
 		})
 		return
 	}
-	redirectURI := result.ReturnTo
-	if redirectURI == "" {
-		redirectURI = result.RedirectURI
-	}
+	redirectURI := resolveBrowserPostLoginRedirect(result.ReturnTo, result.RedirectURI, result.RoleCode)
 	if redirectURI != "" {
 		c.Redirect(http.StatusFound, redirectURI)
 		return
@@ -213,10 +207,7 @@ func (h *LoginTOTPHandler) handlePasskeyFinish(c *gin.Context, req dto.LoginTOTP
 	c.SetCookie(mfaChallengeCookieName, "", -1, "/", "", false, true)
 	maxAge := int(time.Until(result.ExpiresAt).Seconds())
 	c.SetCookie("idp_session", result.SessionID, maxAge, "/", "", false, true)
-	redirectURI := result.ReturnTo
-	if redirectURI == "" {
-		redirectURI = result.RedirectURI
-	}
+	redirectURI := resolveBrowserPostLoginRedirect(result.ReturnTo, result.RedirectURI, result.RoleCode)
 	if redirectURI == "" {
 		redirectURI = defaultPostLoginRedirect
 	}
@@ -300,10 +291,7 @@ func (h *LoginTOTPHandler) writePushStatus(c *gin.Context) {
 			c.SetCookie(mfaChallengeCookieName, "", -1, "/", "", false, true)
 			maxAge := int(time.Until(result.ExpiresAt).Seconds())
 			c.SetCookie("idp_session", result.SessionID, maxAge, "/", "", false, true)
-			redirectURI := result.ReturnTo
-			if redirectURI == "" {
-				redirectURI = result.RedirectURI
-			}
+			redirectURI := resolveBrowserPostLoginRedirect(result.ReturnTo, result.RedirectURI, result.RoleCode)
 			if redirectURI == "" {
 				redirectURI = defaultPostLoginRedirect
 			}

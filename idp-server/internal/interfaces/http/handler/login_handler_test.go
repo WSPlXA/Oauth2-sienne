@@ -141,6 +141,43 @@ func TestLoginHandlerHandlePostSuccessRedirects(t *testing.T) {
 	}
 }
 
+func TestLoginHandlerHandlePostRedirectsByRoleWhenReturnToMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &stubAuthenticator{
+		result: &authn.AuthenticateResult{
+			SessionID: "session-777",
+			UserID:    7,
+			Subject:   "user-777",
+			RoleCode:  "support",
+			ExpiresAt: time.Now().Add(30 * time.Minute),
+		},
+	}
+	router := gin.New()
+	router.POST("/login", NewLoginHandler(service, false).Handle)
+
+	form := url.Values{}
+	form.Set("username", "bob")
+	form.Set("password", "bob123")
+	csrfCookie, csrfToken := mustNewCSRFCookie(t)
+	form.Set("csrf_token", csrfToken)
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(csrfCookie)
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusFound)
+	}
+	if got := recorder.Header().Get("Location"); got != "/admin/workbench/support" {
+		t.Fatalf("location = %q, want /admin/workbench/support", got)
+	}
+}
+
 func TestLoginHandlerHandlePostRedirectsToMFASetupWhenEnrollmentRequired(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

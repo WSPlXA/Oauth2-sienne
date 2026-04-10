@@ -220,3 +220,38 @@ func TestLoginTOTPVerifyRedirectsToPasskeySetupWhenEnrollmentRequired(t *testing
 		t.Fatalf("idp_session cookie = %#v, want session-totp-1", cookie)
 	}
 }
+
+func TestLoginTOTPVerifyRedirectsByRoleWhenReturnToMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &stubAuthenticator{
+		result: &authn.AuthenticateResult{
+			SessionID: "session-totp-2",
+			UserID:    20,
+			Subject:   "user-20",
+			RoleCode:  "support",
+			ExpiresAt: time.Now().UTC().Add(30 * time.Minute),
+		},
+	}
+	router := gin.New()
+	router.POST("/login/totp", NewLoginTOTPHandler(service).Handle)
+
+	form := url.Values{}
+	form.Set("code", "123456")
+	csrfCookie, csrfToken := mustNewCSRFCookie(t)
+	form.Set("csrf_token", csrfToken)
+	req := httptest.NewRequest(http.MethodPost, "/login/totp", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(csrfCookie)
+	req.AddCookie(&http.Cookie{Name: mfaChallengeCookieName, Value: "challenge-1"})
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusFound)
+	}
+	if got := recorder.Header().Get("Location"); got != "/admin/workbench/support" {
+		t.Fatalf("location = %q, want /admin/workbench/support", got)
+	}
+}

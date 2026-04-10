@@ -1344,3 +1344,136 @@ RBAC 不是单独摆在那里的，我已经把它接到了真正高价值的管
 面试里可以这样讲：
 
 > 我在后台控制面里把 RBAC 和审计系统做了联动。也就是说，系统不仅能判断“谁有权做什么”，还能追踪“谁在什么时候，对哪个对象做了什么变更”。像角色 CRUD、用户赋权、管理员强制下线这类高价值动作，我都会写入 `audit_events`，记录操作者、目标对象、IP、UA、session 和业务元数据，这样后续做安全审计、故障排查和合规追踪都有依据。
+
+---
+
+## 33. 2026-04-09 更新补充（控制面与认证链路）
+
+下面这部分是最近一批更新，面试里可以作为“持续演进能力”的证据来讲。
+
+### 33.1 控制面入口与分角色工作台
+
+新增控制面导航入口和分角色工作台，路由已落地：
+
+- `/`：Portal 首页，按权限域和角色引导入口
+- `/admin/workbench/support`
+- `/admin/workbench/oauth`
+- `/admin/workbench/security`
+
+这让后台不再只是“接口列表”，而是按角色职责组织操作路径。
+
+### 33.2 管理动作统一收口到 `/admin/actions/*`
+
+新增一组表单友好的控制面动作接口，全部走 CSRF + RBAC + 审计：
+
+- `/admin/actions/rbac/bootstrap`
+- `/admin/actions/rbac/roles/create`
+- `/admin/actions/rbac/roles/update`
+- `/admin/actions/rbac/roles/delete`
+- `/admin/actions/users/assign-role`
+- `/admin/actions/users/logout-all`
+- `/admin/actions/users/change-password`
+- `/admin/actions/keys/rotate`
+- `/admin/actions/clients/create`
+- `/admin/actions/clients/redirect-uris`
+- `/admin/actions/clients/post-logout-redirect-uris`
+
+可以在面试里强调：
+
+> 我把管理平面的关键写操作集中在 `/admin/actions/*`，统一校验 CSRF 与权限位，并把高价值动作写入审计事件，避免管理能力散落在多个入口。
+
+### 33.3 注册与客户端管理权限收紧
+
+安全边界做了明确收敛：
+
+- `/register` 现在默认走管理员权限控制（`AUTH.EXEC + USER.MANAGE`）
+- 如果 admin middleware 不可用，`/register` 明确返回“disabled”而不是放开
+- `/oauth2/clients*` 在 middleware 可用时要求 `CLIENT.MANAGE`
+
+这说明系统从“开放演示接口”转向“受控管理接口”。
+
+### 33.4 Admin 会话强制 MFA
+
+后台权限中间件新增强约束：
+
+- 仅有 `idp_session` 不够
+- 还要求会话达到 MFA 条件（`amr` 包含 `otp` 或 `acr=urn:idp:acr:mfa`）
+
+也就是说后台不接受“弱会话”直接进控制面。
+
+### 33.5 用户检索与密码重置闭环
+
+控制面补了账号运维高频动作：
+
+- `GET /admin/users/lookup-by-username`
+- `POST /admin/actions/users/change-password`
+
+并在持久层新增了密码哈希更新 SQL（同时把失败计数清零）：
+
+- `update_password_hash.sql`
+
+这让“定位用户 -> 修改密码 -> 强制下线”形成可闭环的运维路径。
+
+### 33.6 手动密钥轮转控制面化
+
+新增 keys service 和手动轮转动作：
+
+- `POST /admin/actions/keys/rotate`
+
+返回与审计会携带：
+
+- `previous_kid`
+- `active_kid`
+- `rotated_at`
+- `next_rotate_at`（若可用）
+
+面试里可讲成“把密钥轮转从定时任务升级为可控的应急操作”。
+
+### 33.7 MFA 链路扩展到 Passkey / Push 模式
+
+认证链路在 TOTP 基础上扩展了多模式挑战上下文：
+
+- `/mfa/passkey/setup`（WebAuthn 注册 begin/finish）
+- `/login/totp` 支持 `passkey_begin` / `passkey_finish` / `poll` / `approve` / `deny`
+- `/mfa/push` 提供 push 决策入口
+- 登录返回增加 `mfa_mode`、`passkey_available`、`push_status`、`push_code`
+
+数据库也新增了 passkey 凭据表：
+
+- `user_webauthn_credentials`
+
+建议在面试里讲“多因子挑战状态机已抽象为可扩展模式，而不是硬编码单一 TOTP 页面”。
+
+### 33.8 配置与部署面更新
+
+新增/强化的配置项：
+
+- `TOTP_ISSUER`
+- `PASSKEY_ENABLED`
+- `PASSKEY_RP_ID`
+- `PASSKEY_RP_DISPLAY_NAME`
+- `PASSKEY_RP_ORIGINS`
+
+`compose.quickstart.yaml` 也同步了 Nginx 前置、HTTPS 发行者默认值与 Passkey RP 参数，方便更贴近生产的接入验证。
+
+---
+
+## 34. 这一轮更新在面试里的价值
+
+可以总结为三点：
+
+- 从“协议功能可用”升级到“控制面可运营”
+- 从“管理员角色可配”升级到“高危动作可审计、可回溯”
+- 从“单一 MFA”升级到“多因子模式化挑战框架（TOTP/Passkey/Push）”
+
+简短说法：
+
+> 最近一次迭代我重点做了控制面能力和安全边界收敛：把高危管理动作收口到 `/admin/actions/*` 并全量审计；把注册和客户端管理切到权限控制；把后台入口升级成必须 MFA 会话；同时把 MFA 扩展成 TOTP + Passkey + Push 的模式化挑战链路。
+
+---
+
+## 35. 你可以主动提的一个“工程诚实点”
+
+当前路由能力已经超过 OpenAPI 文档覆盖范围（比如控制面和部分 MFA 扩展端点），面试里可以主动说明：
+
+> 我们优先把控制面能力落地到了代码和路由层，后续会把 OpenAPI 同步补齐，避免文档契约滞后。

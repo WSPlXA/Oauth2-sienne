@@ -809,6 +809,7 @@ func (s *Service) createSession(ctx context.Context, user *userdomain.Model, met
 		SessionID:       sessionID,
 		UserID:          user.ID,
 		Subject:         user.UserUUID,
+		RoleCode:        user.RoleCode,
 		RedirectURI:     redirectURI,
 		ReturnTo:        returnTo,
 		AuthenticatedAt: now,

@@ -207,10 +207,7 @@ func (h *LoginHandler) handleAuthenticate(c *gin.Context, req dto.LoginRequest) 
 		return
 	}
 
-	redirectURI := req.ReturnTo
-	if redirectURI == "" {
-		redirectURI = result.RedirectURI
-	}
+	redirectURI := resolveBrowserPostLoginRedirect(req.ReturnTo, result.RedirectURI, result.RoleCode)
 	redirectURI, err = validateLocalRedirectTarget(redirectURI)
 	if err != nil {
 		log.Printf("login invalid_redirect_after_auth ip=%s username=%q redirect_uri=%q", c.ClientIP(), req.Username, redirectURI)
