@@ -41,10 +41,11 @@ func (h *Handler) Exchange(ctx context.Context, input pluginport.ExchangeInput) 
 	}
 
 	result, err := h.exchanger.Exchange(ctx, apptoken.ExchangeInput{
-		GrantType:    input.GrantType,
-		ClientID:     input.ClientID,
-		ClientSecret: input.ClientSecret,
-		DeviceCode:   input.DeviceCode,
+		GrantType:         input.GrantType,
+		ClientID:          input.ClientID,
+		ClientSecret:      input.ClientSecret,
+		ReplayFingerprint: input.ReplayFingerprint,
+		DeviceCode:        input.DeviceCode,
 	})
 	if err != nil {
 		return nil, err

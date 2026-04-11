@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -29,17 +31,19 @@ type Exchanger interface {
 }
 
 type Service struct {
-	authCodes  repository.AuthorizationCodeRepository
-	clients    repository.ClientRepository
-	users      repository.UserRepository
-	tokens     repository.TokenRepository
-	tokenCache cacheport.TokenCacheRepository
+	authCodes   repository.AuthorizationCodeRepository
+	clients     repository.ClientRepository
+	users       repository.UserRepository
+	tokens      repository.TokenRepository
+	tokenCache  cacheport.TokenCacheRepository
 	deviceCodes cacheport.DeviceCodeRepository
-	passwords  securityport.PasswordVerifier
-	signer     securityport.Signer
-	issuer     string
-	now        func() time.Time
+	passwords   securityport.PasswordVerifier
+	signer      securityport.Signer
+	issuer      string
+	now         func() time.Time
 }
+
+const refreshTokenGracePeriod = 10 * time.Second
 
 func NewService(
 	authCodes repository.AuthorizationCodeRepository,
@@ -53,15 +57,15 @@ func NewService(
 	issuer string,
 ) *Service {
 	return &Service{
-		authCodes:  authCodes,
-		clients:    clients,
-		users:      users,
-		tokens:     tokens,
-		tokenCache: tokenCache,
+		authCodes:   authCodes,
+		clients:     clients,
+		users:       users,
+		tokens:      tokens,
+		tokenCache:  tokenCache,
 		deviceCodes: deviceCodes,
-		passwords:  passwords,
-		signer:     signer,
-		issuer:     issuer,
+		passwords:   passwords,
+		signer:      signer,
+		issuer:      issuer,
 		now: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -198,11 +202,14 @@ func (s *Service) exchangeRefreshToken(ctx context.Context, input ExchangeInput)
 
 	oldSHA := sha256Hex(input.RefreshToken)
 	if s.tokenCache != nil {
-		revoked, err := s.tokenCache.IsRefreshTokenRevoked(ctx, oldSHA)
+		replay, err := s.tokenCache.CheckRefreshTokenReplay(ctx, oldSHA, strings.TrimSpace(input.ReplayFingerprint))
 		if err != nil {
 			return nil, err
 		}
-		if revoked {
+		if result := refreshReplayToExchangeResult(replay); result != nil {
+			return result, nil
+		}
+		if replay != nil && replay.Status == cacheport.RefreshTokenReplayRejected {
 			return nil, ErrInvalidRefreshToken
 		}
 	}
@@ -303,6 +310,12 @@ func (s *Service) exchangeRefreshToken(ctx context.Context, input ExchangeInput)
 		ExpiresAt:   refreshExpiresAt,
 	}
 	if err := s.tokens.RotateRefreshToken(ctx, oldSHA, now, newRefresh); err != nil {
+		if replayResult, replayErr := s.tryRefreshTokenGraceReplay(ctx, oldSHA, input.ReplayFingerprint); replayErr == nil && replayResult != nil {
+			return replayResult, nil
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrInvalidRefreshToken
+		}
 		return nil, err
 	}
 	if s.tokenCache != nil {
@@ -312,9 +325,17 @@ func (s *Service) exchangeRefreshToken(ctx context.Context, input ExchangeInput)
 			UserID:      int64StringPtr(oldRefresh.UserID),
 			Subject:     oldRefresh.Subject,
 			ScopesJSON:  string(scopesJSON),
+			FamilyID:    oldSHA,
 			IssuedAt:    newRefresh.IssuedAt,
 			ExpiresAt:   newRefresh.ExpiresAt,
-		}, time.Until(refreshExpiresAt), time.Until(oldRefresh.ExpiresAt))
+		}, cacheport.TokenResponseCacheEntry{
+			AccessToken:  result.AccessToken,
+			TokenType:    result.TokenType,
+			ExpiresIn:    result.ExpiresIn,
+			RefreshToken: newRefreshToken,
+			Scope:        result.Scope,
+			IDToken:      result.IDToken,
+		}, strings.TrimSpace(input.ReplayFingerprint), time.Until(refreshExpiresAt), refreshTokenGracePeriod)
 	}
 	result.RefreshToken = newRefreshToken
 	return result, nil
@@ -632,12 +653,44 @@ func (s *Service) issueUserGrantTokens(ctx context.Context, client *clientdomain
 			UserID:      int64String(userID),
 			Subject:     user.UserUUID,
 			ScopesJSON:  string(accessScopesJSON),
+			FamilyID:    refreshModel.TokenSHA256,
 			IssuedAt:    refreshModel.IssuedAt,
 			ExpiresAt:   refreshModel.ExpiresAt,
 		}, time.Until(refreshExpiresAt))
 	}
 	result.RefreshToken = refreshToken
 	return result, nil
+}
+
+func refreshReplayToExchangeResult(replay *cacheport.RefreshTokenReplayResult) *ExchangeResult {
+	if replay == nil || replay.Status != cacheport.RefreshTokenReplayGrace || replay.Response == nil {
+		return nil
+	}
+	return &ExchangeResult{
+		AccessToken:  replay.Response.AccessToken,
+		TokenType:    replay.Response.TokenType,
+		ExpiresIn:    replay.Response.ExpiresIn,
+		RefreshToken: replay.Response.RefreshToken,
+		Scope:        replay.Response.Scope,
+		IDToken:      replay.Response.IDToken,
+	}
+}
+
+func (s *Service) tryRefreshTokenGraceReplay(ctx context.Context, tokenSHA256, replayFingerprint string) (*ExchangeResult, error) {
+	if s.tokenCache == nil {
+		return nil, nil
+	}
+	replay, err := s.tokenCache.CheckRefreshTokenReplay(ctx, tokenSHA256, strings.TrimSpace(replayFingerprint))
+	if err != nil {
+		return nil, err
+	}
+	if result := refreshReplayToExchangeResult(replay); result != nil {
+		return result, nil
+	}
+	if replay != nil && replay.Status == cacheport.RefreshTokenReplayRejected {
+		return nil, ErrInvalidRefreshToken
+	}
+	return nil, nil
 }
 
 func mustDecodeScopeJSON(raw string) []string {

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"log"
 	"net/http"
@@ -92,17 +94,18 @@ func (h *TokenHandler) Handle(c *gin.Context) {
 	}
 
 	result, err := grantHandler.Exchange(c.Request.Context(), pluginport.ExchangeInput{
-		GrantType:    grantType,
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		Code:         req.Code,
-		RedirectURI:  req.RedirectURI,
-		CodeVerifier: req.CodeVerifier,
-		RefreshToken: req.RefreshToken,
-		DeviceCode:   req.DeviceCode,
-		Username:     req.Username,
-		Password:     req.Password,
-		Scopes:       req.ScopeList(),
+		GrantType:         grantType,
+		ClientID:          clientID,
+		ClientSecret:      clientSecret,
+		ReplayFingerprint: buildRefreshReplayFingerprint(clientID, string(clientAuth.Method), c.ClientIP(), c.Request.UserAgent()),
+		Code:              req.Code,
+		RedirectURI:       req.RedirectURI,
+		CodeVerifier:      req.CodeVerifier,
+		RefreshToken:      req.RefreshToken,
+		DeviceCode:        req.DeviceCode,
+		Username:          req.Username,
+		Password:          req.Password,
+		Scopes:            req.ScopeList(),
 	})
 	if err != nil {
 		log.Printf("token exchange failed grant_type=%s client_id=%s err=%v", req.GrantType, clientID, err)
@@ -154,4 +157,9 @@ func (h *TokenHandler) Handle(c *gin.Context) {
 		RefreshToken: result.RefreshToken,
 		IDToken:      result.IDToken,
 	})
+}
+
+func buildRefreshReplayFingerprint(clientID, authMethod, clientIP, userAgent string) string {
+	sum := sha256.Sum256([]byte(clientID + "|" + authMethod + "|" + clientIP + "|" + userAgent))
+	return hex.EncodeToString(sum[:])
 }

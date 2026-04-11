@@ -160,6 +160,9 @@ func (r *TokenRepository) RotateRefreshToken(ctx context.Context, oldTokenSHA256
 	if err != nil {
 		return err
 	}
+	if oldToken == nil || oldToken.RevokedAt != nil || oldToken.ReplacedByTokenID != nil || !oldToken.ExpiresAt.After(revokedAt) {
+		return sql.ErrNoRows
+	}
 
 	result, err := tx.ExecContext(
 		ctx,

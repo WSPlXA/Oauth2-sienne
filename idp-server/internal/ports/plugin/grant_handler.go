@@ -9,17 +9,18 @@ import (
 type GrantHandlerType = pkgoauth2.GrantType
 
 type ExchangeInput struct {
-	GrantType    pkgoauth2.GrantType
-	ClientID     string
-	ClientSecret string
-	Code         string
-	RedirectURI  string
-	CodeVerifier string
-	RefreshToken string
-	DeviceCode   string
-	Username     string
-	Password     string
-	Scopes       []string
+	GrantType         pkgoauth2.GrantType
+	ClientID          string
+	ClientSecret      string
+	ReplayFingerprint string
+	Code              string
+	RedirectURI       string
+	CodeVerifier      string
+	RefreshToken      string
+	DeviceCode        string
+	Username          string
+	Password          string
+	Scopes            []string
 }
 
 type ExchangeResult struct {
