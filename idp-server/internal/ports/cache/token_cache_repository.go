@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// TokenCacheRepository 负责 token 的高频缓存读取、即时撤销和 refresh replay 保护。
 type TokenCacheRepository interface {
 	SaveAccessToken(ctx context.Context, entry AccessTokenCacheEntry, ttl time.Duration) error
 	GetAccessToken(ctx context.Context, tokenSHA256 string) (*AccessTokenCacheEntry, error)
@@ -20,6 +21,7 @@ type TokenCacheRepository interface {
 	IsRefreshTokenRevoked(ctx context.Context, tokenSHA256 string) (bool, error)
 }
 
+// RefreshTokenReplayStatus 表示同一 refresh token 在缓存层观测到的并发/重放状态。
 type RefreshTokenReplayStatus string
 
 const (
@@ -33,6 +35,7 @@ type RefreshTokenReplayResult struct {
 	Response *TokenResponseCacheEntry
 }
 
+// TokenResponseCacheEntry 用于在 refresh token grace 窗口内复用上一次成功响应。
 type TokenResponseCacheEntry struct {
 	AccessToken  string
 	TokenType    string
@@ -42,6 +45,7 @@ type TokenResponseCacheEntry struct {
 	IDToken      string
 }
 
+// AccessTokenCacheEntry 是 access token 在缓存中的元数据投影。
 type AccessTokenCacheEntry struct {
 	TokenSHA256  string
 	ClientID     string
@@ -55,6 +59,7 @@ type AccessTokenCacheEntry struct {
 	ExpiresAt    time.Time
 }
 
+// RefreshTokenCacheEntry 是 refresh token 在缓存中的生命周期记录。
 type RefreshTokenCacheEntry struct {
 	TokenSHA256 string
 	ClientID    string

@@ -32,6 +32,12 @@ type Authenticator interface {
 	FinalizeMFAPush(ctx context.Context, input FinalizeMFAPushInput) (*AuthenticateResult, error)
 }
 
+// Service 负责串起登录认证的完整状态机。
+// 它本身不关心 HTTP 或页面渲染，只处理：
+// 1. 选择认证方式并委托给插件。
+// 2. 处理密码登录的限流、锁定和失败统计。
+// 3. 决定是否进入 TOTP / Passkey / Push 等 MFA 分支。
+// 4. 在认证完成后落库并缓存会话。
 type Service struct {
 	sessionRepo        repository.SessionRepository
 	sessionCache       cache.SessionCacheRepository
@@ -66,6 +72,8 @@ func NewService(
 	forceMFAEnrollment bool,
 	ratePolicy RateLimitPolicy,
 ) *Service {
+	// 如果外部没有显式配置策略，就回退到默认限流策略，
+	// 避免在生产环境里因为漏配而完全失去暴力破解防护。
 	if ratePolicy.FailureWindow <= 0 && ratePolicy.MaxFailuresPerIP == 0 && ratePolicy.MaxFailuresPerUser == 0 && ratePolicy.UserLockThreshold == 0 && ratePolicy.UserLockTTL == 0 {
 		ratePolicy = DefaultRateLimitPolicy()
 	}
@@ -90,12 +98,16 @@ func NewService(
 }
 
 func (s *Service) WithPasskey(passkeyRepo repository.PasskeyCredentialRepository, passkey securityport.PasskeyProvider) *Service {
+	// Passkey 是可选能力，因此采用后装配方式。
+	// 这样基础密码/TOTP 流程不依赖 WebAuthn 环境也能单独运行。
 	s.passkeyRepo = passkeyRepo
 	s.passkey = passkey
 	return s
 }
 
 func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*AuthenticateResult, error) {
+	// Authenticate 是登录入口，它先把“凭证校验”与“登录后编排”分开：
+	// 插件只负责验证身份，Service 再统一处理用户状态、MFA 和会话创建。
 	if s.registry == nil {
 		return nil, ErrUnsupportedMethod
 	}
@@ -111,6 +123,7 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 	}
 	var passwordUser *userdomain.Model
 	if methodType == pluginport.AuthnMethodTypePassword {
+		// 密码模式在真正校验前先做预处理，尽早拦截被锁定账户和触发频率过高的来源。
 		passwordUser, err = s.preparePasswordAuthentication(ctx, input.Username, input.IPAddress)
 		if err != nil {
 			return nil, err
@@ -134,6 +147,8 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 		return nil, err
 	}
 	if authnResult != nil && authnResult.RedirectURI != "" && !authnResult.Authenticated {
+		// 某些认证插件（例如联邦登录）会先返回一个跳转地址，
+		// 此时认证流程还没有完成，但请求已经被该插件“接管”。
 		return &AuthenticateResult{
 			RedirectURI: authnResult.RedirectURI,
 		}, nil
@@ -170,6 +185,8 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 	}
 
 	if methodType == pluginport.AuthnMethodTypePassword {
+		// 密码登录成功后才检查 MFA 状态。
+		// 这样可以把“第一要素成功”和“是否继续挑战第二要素”明确分层。
 		credential, err := s.lookupTOTP(ctx, user.ID)
 		if err != nil {
 			return nil, err
@@ -180,6 +197,8 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 		}
 		passkeyAvailable := len(passkeyCredentialJSON) > 0 && s.passkey != nil
 		if credential != nil || passkeyAvailable {
+			// 这里不直接创建 session，而是先生成一个短期 MFA challenge，
+			// 把登录上下文（用户、来源 IP、重定向目标）暂存在缓存中等待二次验证。
 			challengeID, err := s.createMFAChallenge(ctx, user, input)
 			if err != nil {
 				return nil, err
@@ -205,6 +224,8 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 			}, ErrMFARequired
 		}
 		if s.forceMFAEnrollment {
+			// 某些部署要求“首次登录后必须先补齐 MFA 绑定”。
+			// 这种情况下会先发放会话，再通过业务标记驱动前端进入绑定流程。
 			result, err := s.createSession(ctx, user, methodType, input.IPAddress, input.UserAgent, authnResult.RedirectURI, input.ReturnTo, now)
 			if err != nil {
 				return nil, err
@@ -218,6 +239,8 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 }
 
 func (s *Service) VerifyTOTP(ctx context.Context, input VerifyTOTPInput) (*AuthenticateResult, error) {
+	// VerifyTOTP 处理第二要素校验，并且额外做一步“时间窗重放保护”：
+	// 同一个 TOTP step 在短时间内只能消费一次，降低中间人复用风险。
 	if s.mfaCache == nil {
 		return nil, ErrMFAChallengeExpired
 	}
@@ -258,6 +281,7 @@ func (s *Service) VerifyTOTP(ctx context.Context, input VerifyTOTPInput) (*Authe
 	if !reserved {
 		return nil, ErrTOTPCodeReused
 	}
+	// MFA challenge 一旦成功就立即删除，确保二次验证令牌不可重复使用。
 	if err := s.mfaCache.DeleteMFAChallenge(ctx, challenge.ChallengeID); err != nil {
 		return nil, err
 	}

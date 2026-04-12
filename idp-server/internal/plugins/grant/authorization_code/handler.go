@@ -30,6 +30,8 @@ func (h *Handler) Type() pluginport.GrantHandlerType {
 }
 
 func (h *Handler) Exchange(ctx context.Context, input pluginport.ExchangeInput) (*pluginport.ExchangeResult, error) {
+	// grant handler 本身不实现授权码兑换逻辑，
+	// 它的职责是做协议级别的类型守卫，并把统一插件输入转换为 token service 输入。
 	if h.exchanger == nil {
 		return nil, errors.New("grant handler is not configured")
 	}
@@ -40,6 +42,8 @@ func (h *Handler) Exchange(ctx context.Context, input pluginport.ExchangeInput) 
 		return nil, apptoken.ErrUnsupportedGrantType
 	}
 
+	// 实际的 code、redirect_uri、PKCE 校验都在 token service 中完成，
+	// 这样不同入口不会复制一套兑换规则。
 	result, err := h.exchanger.Exchange(ctx, apptoken.ExchangeInput{
 		GrantType:         input.GrantType,
 		ClientID:          input.ClientID,
@@ -58,6 +62,7 @@ func (h *Handler) Exchange(ctx context.Context, input pluginport.ExchangeInput) 
 		return nil, nil
 	}
 
+	// 最后再把应用层结果翻回插件端口类型，供 token handler 统一序列化响应。
 	return &pluginport.ExchangeResult{
 		AccessToken:  result.AccessToken,
 		TokenType:    result.TokenType,
