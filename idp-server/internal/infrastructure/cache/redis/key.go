@@ -66,6 +66,14 @@ func (k *KeyBuilder) UserLock(userID string) string {
 	return fmt.Sprintf("%s:%s:lock:user:%s", k.Prefix, k.Env, userID)
 }
 
+func (k *KeyBuilder) IPLock(ip string) string {
+	return fmt.Sprintf("%s:%s:lock:ip:%s", k.Prefix, k.Env, ip)
+}
+
+func (k *KeyBuilder) LoginBlacklistUser(username string) string {
+	return fmt.Sprintf("%s:%s:loginblacklist:user:%s", k.Prefix, k.Env, username)
+}
+
 func (k *KeyBuilder) DeviceCode(deviceCode string) string {
 	return fmt.Sprintf("%s:%s:device:code:%s", k.Prefix, k.Env, deviceCode)
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	userdomain "idp-server/internal/domain/user"
+	cacheport "idp-server/internal/ports/cache"
 )
 
 type stubRegisterUserRepository struct {
@@ -65,14 +66,15 @@ func (s *stubRegisterUserRepository) ResetFailedLogin(context.Context, int64, ti
 type stubRegisterRateLimitRepository struct {
 	clearedUserLocks []string
 	resetUsers       []string
+	resetBlacklist   []string
 }
 
-func (s *stubRegisterRateLimitRepository) IncrementLoginFailByUser(context.Context, string, time.Duration) (int64, error) {
-	return 0, nil
+func (s *stubRegisterRateLimitRepository) IncrementLoginFailByUser(context.Context, string, string, time.Duration, int64, time.Duration) (*cacheport.RateLimitIncrementResult, error) {
+	return &cacheport.RateLimitIncrementResult{}, nil
 }
 
-func (s *stubRegisterRateLimitRepository) IncrementLoginFailByIP(context.Context, string, time.Duration) (int64, error) {
-	return 0, nil
+func (s *stubRegisterRateLimitRepository) IncrementLoginFailByIP(context.Context, string, time.Duration, int64, time.Duration) (*cacheport.RateLimitIncrementResult, error) {
+	return &cacheport.RateLimitIncrementResult{}, nil
 }
 
 func (s *stubRegisterRateLimitRepository) GetLoginFailByUser(context.Context, string) (int64, error) {
@@ -92,6 +94,15 @@ func (s *stubRegisterRateLimitRepository) ResetLoginFailByIP(context.Context, st
 	return nil
 }
 
+func (s *stubRegisterRateLimitRepository) IncrementBlacklistByUser(context.Context, string, string, int64) (*cacheport.RateLimitIncrementResult, error) {
+	return &cacheport.RateLimitIncrementResult{}, nil
+}
+
+func (s *stubRegisterRateLimitRepository) ResetBlacklistByUser(_ context.Context, username string) error {
+	s.resetBlacklist = append(s.resetBlacklist, username)
+	return nil
+}
+
 func (s *stubRegisterRateLimitRepository) SetUserLock(context.Context, string, time.Duration) error {
 	return nil
 }
@@ -102,6 +113,14 @@ func (s *stubRegisterRateLimitRepository) IsUserLocked(context.Context, string) 
 
 func (s *stubRegisterRateLimitRepository) ClearUserLock(_ context.Context, userID string) error {
 	s.clearedUserLocks = append(s.clearedUserLocks, userID)
+	return nil
+}
+
+func (s *stubRegisterRateLimitRepository) IsIPLocked(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func (s *stubRegisterRateLimitRepository) ClearIPLock(context.Context, string) error {
 	return nil
 }
 
@@ -138,5 +157,8 @@ func TestAdminUnlockUserClearsDBAndRateLimitState(t *testing.T) {
 	}
 	if len(rateLimitRepo.resetUsers) != 1 || rateLimitRepo.resetUsers[0] != "bob" {
 		t.Fatalf("reset users = %#v, want [\"bob\"]", rateLimitRepo.resetUsers)
+	}
+	if len(rateLimitRepo.resetBlacklist) != 1 || rateLimitRepo.resetBlacklist[0] != "bob" {
+		t.Fatalf("reset blacklist users = %#v, want [\"bob\"]", rateLimitRepo.resetBlacklist)
 	}
 }

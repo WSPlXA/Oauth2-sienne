@@ -27,6 +27,9 @@ type stubAuthnUserRepository struct {
 	resetFailedLoginCalls      int
 	resetFailedLoginUserID     int64
 	resetFailedLoginAt         time.Time
+	lockAccountCalls           int
+	lockAccountID              int64
+	lockAccountAt              time.Time
 }
 
 func (s *stubAuthnUserRepository) Create(context.Context, *userdomain.Model) error {
@@ -65,6 +68,16 @@ func (s *stubAuthnUserRepository) UpdateRoleAndPrivilege(context.Context, int64,
 }
 
 func (s *stubAuthnUserRepository) UnlockAccount(context.Context, int64, time.Time) error {
+	return nil
+}
+
+func (s *stubAuthnUserRepository) LockAccount(_ context.Context, id int64, updatedAt time.Time) error {
+	s.lockAccountCalls++
+	s.lockAccountID = id
+	s.lockAccountAt = updatedAt
+	if user := s.usersByUsername["alice"]; user != nil {
+		user.Status = "locked"
+	}
 	return nil
 }
 
@@ -145,26 +158,62 @@ type stubAuthnRateLimitRepository struct {
 	userFailures      map[string]int64
 	ipFailures        map[string]int64
 	lockedUsers       map[string]bool
+	lockedIPs         map[string]bool
+	blacklistFailures map[string]int64
 	lastLockedUserID  string
 	lastLockedUserTTL time.Duration
 	resetUsernames    []string
 	resetIPs          []string
 }
 
-func (s *stubAuthnRateLimitRepository) IncrementLoginFailByUser(_ context.Context, username string, _ time.Duration) (int64, error) {
+func (s *stubAuthnRateLimitRepository) IncrementLoginFailByUser(
+	_ context.Context,
+	username, userID string,
+	_ time.Duration,
+	lockThreshold int64,
+	_ time.Duration,
+) (*cacheport.RateLimitIncrementResult, error) {
 	if s.userFailures == nil {
 		s.userFailures = map[string]int64{}
 	}
 	s.userFailures[username]++
-	return s.userFailures[username], nil
+	locked := false
+	if lockThreshold > 0 && s.userFailures[username] >= lockThreshold && userID != "" {
+		if s.lockedUsers == nil {
+			s.lockedUsers = map[string]bool{}
+		}
+		s.lockedUsers[userID] = true
+		locked = true
+	}
+	return &cacheport.RateLimitIncrementResult{
+		Count:  s.userFailures[username],
+		Locked: locked,
+	}, nil
 }
 
-func (s *stubAuthnRateLimitRepository) IncrementLoginFailByIP(_ context.Context, ip string, _ time.Duration) (int64, error) {
+func (s *stubAuthnRateLimitRepository) IncrementLoginFailByIP(
+	_ context.Context,
+	ip string,
+	_ time.Duration,
+	lockThreshold int64,
+	_ time.Duration,
+) (*cacheport.RateLimitIncrementResult, error) {
 	if s.ipFailures == nil {
 		s.ipFailures = map[string]int64{}
 	}
 	s.ipFailures[ip]++
-	return s.ipFailures[ip], nil
+	locked := false
+	if lockThreshold > 0 && s.ipFailures[ip] >= lockThreshold {
+		if s.lockedIPs == nil {
+			s.lockedIPs = map[string]bool{}
+		}
+		s.lockedIPs[ip] = true
+		locked = true
+	}
+	return &cacheport.RateLimitIncrementResult{
+		Count:  s.ipFailures[ip],
+		Locked: locked,
+	}, nil
 }
 
 func (s *stubAuthnRateLimitRepository) GetLoginFailByUser(context.Context, string) (int64, error) {
@@ -182,6 +231,32 @@ func (s *stubAuthnRateLimitRepository) ResetLoginFailByUser(_ context.Context, u
 
 func (s *stubAuthnRateLimitRepository) ResetLoginFailByIP(_ context.Context, ip string) error {
 	s.resetIPs = append(s.resetIPs, ip)
+	return nil
+}
+
+func (s *stubAuthnRateLimitRepository) IncrementBlacklistByUser(_ context.Context, username, userID string, lockThreshold int64) (*cacheport.RateLimitIncrementResult, error) {
+	if s.blacklistFailures == nil {
+		s.blacklistFailures = map[string]int64{}
+	}
+	s.blacklistFailures[username]++
+	locked := false
+	if lockThreshold > 0 && s.blacklistFailures[username] >= lockThreshold && userID != "" {
+		if s.lockedUsers == nil {
+			s.lockedUsers = map[string]bool{}
+		}
+		s.lockedUsers[userID] = true
+		locked = true
+	}
+	return &cacheport.RateLimitIncrementResult{
+		Count:  s.blacklistFailures[username],
+		Locked: locked,
+	}, nil
+}
+
+func (s *stubAuthnRateLimitRepository) ResetBlacklistByUser(_ context.Context, username string) error {
+	if s.blacklistFailures != nil {
+		delete(s.blacklistFailures, username)
+	}
 	return nil
 }
 
@@ -204,6 +279,18 @@ func (s *stubAuthnRateLimitRepository) ClearUserLock(_ context.Context, userID s
 		return nil
 	}
 	delete(s.lockedUsers, userID)
+	return nil
+}
+
+func (s *stubAuthnRateLimitRepository) IsIPLocked(_ context.Context, ip string) (bool, error) {
+	return s.lockedIPs[ip], nil
+}
+
+func (s *stubAuthnRateLimitRepository) ClearIPLock(_ context.Context, ip string) error {
+	if s.lockedIPs == nil {
+		return nil
+	}
+	delete(s.lockedIPs, ip)
 	return nil
 }
 
@@ -344,7 +431,7 @@ func TestAuthenticatePasswordRejectsRateLimitedIPBeforeLookup(t *testing.T) {
 		userRepo,
 		&stubAuthnSessionRepository{},
 		&stubAuthnSessionCache{},
-		&stubAuthnRateLimitRepository{ipFailures: map[string]int64{"203.0.113.10": 20}},
+		&stubAuthnRateLimitRepository{lockedIPs: map[string]bool{"203.0.113.10": true}},
 		nil,
 		pluginregistry.NewAuthnRegistry(&stubPasswordAuthnMethod{users: userRepo, passwords: &stubAuthnPasswordVerifier{}}),
 		nil,
@@ -425,9 +512,6 @@ func TestAuthenticatePasswordSuccessfulPathUsesSingleUserLookup(t *testing.T) {
 	if userRepo.findByUserUUIDCalls != 0 {
 		t.Fatalf("FindByUserUUID calls = %d, want 0", userRepo.findByUserUUIDCalls)
 	}
-	if userRepo.resetFailedLoginCalls != 1 || userRepo.resetFailedLoginUserID != 42 {
-		t.Fatalf("ResetFailedLogin calls = %d userID = %d, want 1 and 42", userRepo.resetFailedLoginCalls, userRepo.resetFailedLoginUserID)
-	}
 	if len(rateLimits.resetUsernames) != 1 || rateLimits.resetUsernames[0] != "alice" {
 		t.Fatalf("ResetLoginFailByUser = %#v, want [\"alice\"]", rateLimits.resetUsernames)
 	}
@@ -448,8 +532,7 @@ func TestAuthenticatePasswordFailureLocksUserAtThreshold(t *testing.T) {
 		Status:       "active",
 	}
 	userRepo := &stubAuthnUserRepository{
-		usersByUsername:            map[string]*userdomain.Model{"alice": user},
-		incrementFailedLoginResult: 5,
+		usersByUsername: map[string]*userdomain.Model{"alice": user},
 	}
 	rateLimits := &stubAuthnRateLimitRepository{
 		userFailures: map[string]int64{},
@@ -477,31 +560,141 @@ func TestAuthenticatePasswordFailureLocksUserAtThreshold(t *testing.T) {
 		},
 	)
 
+	var err error
+	for i := 0; i < 5; i++ {
+		_, err = service.Authenticate(context.Background(), AuthenticateInput{
+			Username:  "alice",
+			Password:  "wrong",
+			IPAddress: "203.0.113.10",
+		})
+	}
+	if !errors.Is(err, ErrUserLocked) {
+		t.Fatalf("Authenticate() error = %v, want %v", err, ErrUserLocked)
+	}
+	if userRepo.findByUsernameCalls != 5 {
+		t.Fatalf("FindByUsername calls = %d, want 5", userRepo.findByUsernameCalls)
+	}
+	if rateLimits.userFailures["alice"] != 5 {
+		t.Fatalf("user failure count = %d, want 5", rateLimits.userFailures["alice"])
+	}
+	if rateLimits.ipFailures["203.0.113.10"] != 4 {
+		t.Fatalf("ip failure count = %d, want 4", rateLimits.ipFailures["203.0.113.10"])
+	}
+	if !rateLimits.lockedUsers["42"] {
+		t.Fatalf("locked user map = %#v, want user 42 to be locked", rateLimits.lockedUsers)
+	}
+}
+
+func TestAuthenticatePasswordFailureLocksIPAtThreshold(t *testing.T) {
+	user := &userdomain.Model{
+		ID:           42,
+		UserUUID:     "user-42",
+		Username:     "alice",
+		PasswordHash: "hashed:correct",
+		Status:       "active",
+	}
+	userRepo := &stubAuthnUserRepository{
+		usersByUsername: map[string]*userdomain.Model{"alice": user},
+	}
+	rateLimits := &stubAuthnRateLimitRepository{
+		userFailures: map[string]int64{},
+		ipFailures:   map[string]int64{},
+		lockedUsers:  map[string]bool{},
+		lockedIPs:    map[string]bool{},
+	}
+	service := NewService(
+		userRepo,
+		&stubAuthnSessionRepository{},
+		&stubAuthnSessionCache{},
+		rateLimits,
+		nil,
+		pluginregistry.NewAuthnRegistry(&stubPasswordAuthnMethod{users: userRepo, passwords: &stubAuthnPasswordVerifier{}}),
+		nil,
+		nil,
+		8*time.Hour,
+		5*time.Minute,
+		false,
+		RateLimitPolicy{
+			FailureWindow:              15 * time.Minute,
+			MaxFailuresPerIP:           1,
+			MaxFailuresPerUser:         100,
+			UserLockThreshold:          100,
+			UserLockTTL:                30 * time.Minute,
+			PermanentUserLockThreshold: 10,
+		},
+	)
+
 	_, err := service.Authenticate(context.Background(), AuthenticateInput{
 		Username:  "alice",
 		Password:  "wrong",
 		IPAddress: "203.0.113.10",
 	})
-	if !errors.Is(err, ErrUserLocked) {
-		t.Fatalf("Authenticate() error = %v, want %v", err, ErrUserLocked)
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("Authenticate() error = %v, want %v", err, ErrRateLimited)
 	}
-	if userRepo.findByUsernameCalls != 1 {
-		t.Fatalf("FindByUsername calls = %d, want 1", userRepo.findByUsernameCalls)
+	if !rateLimits.lockedIPs["203.0.113.10"] {
+		t.Fatalf("locked ip map = %#v, want ip locked", rateLimits.lockedIPs)
 	}
-	if userRepo.incrementFailedLoginCalls != 1 {
-		t.Fatalf("IncrementFailedLogin calls = %d, want 1", userRepo.incrementFailedLoginCalls)
+}
+
+func TestAuthenticatePasswordFailureTriggersPermanentLockAfterBlacklistThreshold(t *testing.T) {
+	user := &userdomain.Model{
+		ID:           42,
+		UserUUID:     "user-42",
+		Username:     "alice",
+		PasswordHash: "hashed:correct",
+		Status:       "active",
 	}
-	if rateLimits.userFailures["alice"] != 1 {
-		t.Fatalf("user failure count = %d, want 1", rateLimits.userFailures["alice"])
+	userRepo := &stubAuthnUserRepository{
+		usersByUsername: map[string]*userdomain.Model{"alice": user},
 	}
-	if rateLimits.ipFailures["203.0.113.10"] != 1 {
-		t.Fatalf("ip failure count = %d, want 1", rateLimits.ipFailures["203.0.113.10"])
+	rateLimits := &stubAuthnRateLimitRepository{
+		userFailures:      map[string]int64{},
+		ipFailures:        map[string]int64{},
+		blacklistFailures: map[string]int64{},
+		lockedUsers:       map[string]bool{},
 	}
-	if rateLimits.lastLockedUserID != "42" {
-		t.Fatalf("locked user id = %q, want 42", rateLimits.lastLockedUserID)
+	service := NewService(
+		userRepo,
+		&stubAuthnSessionRepository{},
+		&stubAuthnSessionCache{},
+		rateLimits,
+		nil,
+		pluginregistry.NewAuthnRegistry(&stubPasswordAuthnMethod{users: userRepo, passwords: &stubAuthnPasswordVerifier{}}),
+		nil,
+		nil,
+		8*time.Hour,
+		5*time.Minute,
+		false,
+		RateLimitPolicy{
+			FailureWindow:              15 * time.Minute,
+			MaxFailuresPerIP:           20,
+			MaxFailuresPerUser:         100,
+			UserLockThreshold:          100,
+			UserLockTTL:                30 * time.Minute,
+			PermanentUserLockThreshold: 2,
+		},
+	)
+
+	for i := 0; i < 2; i++ {
+		_, err := service.Authenticate(context.Background(), AuthenticateInput{
+			Username:  "alice",
+			Password:  "wrong",
+			IPAddress: "203.0.113.10",
+		})
+		if i == 0 && !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("first attempt error = %v, want %v", err, ErrInvalidCredentials)
+		}
+		if i == 1 && !errors.Is(err, ErrUserLocked) {
+			t.Fatalf("second attempt error = %v, want %v", err, ErrUserLocked)
+		}
 	}
-	if rateLimits.lastLockedUserTTL != 30*time.Minute {
-		t.Fatalf("locked ttl = %s, want 30m", rateLimits.lastLockedUserTTL)
+
+	if !rateLimits.lockedUsers["42"] {
+		t.Fatalf("locked user map = %#v, want user 42 to be locked", rateLimits.lockedUsers)
+	}
+	if userRepo.lockAccountCalls != 1 || userRepo.lockAccountID != 42 {
+		t.Fatalf("lock account calls=%d id=%d, want 1 and 42", userRepo.lockAccountCalls, userRepo.lockAccountID)
 	}
 }
 

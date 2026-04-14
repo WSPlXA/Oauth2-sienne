@@ -195,6 +195,7 @@ func (s *Service) AdminUnlockUser(ctx context.Context, input AdminUnlockUserInpu
 		_ = s.rateLimit.ClearUserLock(ctx, strconv.FormatInt(input.UserID, 10))
 		if username := strings.TrimSpace(userModel.Username); username != "" {
 			_ = s.rateLimit.ResetLoginFailByUser(ctx, username)
+			_ = s.rateLimit.ResetBlacklistByUser(ctx, username)
 		}
 	}
 	return &AdminUnlockUserResult{

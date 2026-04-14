@@ -26,20 +26,22 @@ var (
 )
 
 type RateLimitPolicy struct {
-	FailureWindow      time.Duration
-	MaxFailuresPerIP   int64
-	MaxFailuresPerUser int64
-	UserLockThreshold  int64
-	UserLockTTL        time.Duration
+	FailureWindow              time.Duration
+	MaxFailuresPerIP           int64
+	MaxFailuresPerUser         int64
+	UserLockThreshold          int64
+	UserLockTTL                time.Duration
+	PermanentUserLockThreshold int64
 }
 
 func DefaultRateLimitPolicy() RateLimitPolicy {
 	return RateLimitPolicy{
-		FailureWindow:      15 * time.Minute,
-		MaxFailuresPerIP:   20,
-		MaxFailuresPerUser: 5,
-		UserLockThreshold:  5,
-		UserLockTTL:        30 * time.Minute,
+		FailureWindow:              15 * time.Minute,
+		MaxFailuresPerIP:           20,
+		MaxFailuresPerUser:         5,
+		UserLockThreshold:          5,
+		UserLockTTL:                30 * time.Minute,
+		PermanentUserLockThreshold: 10,
 	}
 }
 

@@ -48,6 +48,12 @@ type Service struct {
 	forceMFAEnrollment bool
 	ratePolicy         RateLimitPolicy
 	now                func() time.Time
+	ioPool             *workerPool
+	cpuPool            *workerPool
+}
+
+type userAccountLocker interface {
+	LockAccount(ctx context.Context, id int64, updatedAt time.Time) error
 }
 
 const totpStepReplayTTL = 120 * time.Second
@@ -66,8 +72,16 @@ func NewService(
 	forceMFAEnrollment bool,
 	ratePolicy RateLimitPolicy,
 ) *Service {
-	if ratePolicy.FailureWindow <= 0 && ratePolicy.MaxFailuresPerIP == 0 && ratePolicy.MaxFailuresPerUser == 0 && ratePolicy.UserLockThreshold == 0 && ratePolicy.UserLockTTL == 0 {
+	if ratePolicy.FailureWindow <= 0 &&
+		ratePolicy.MaxFailuresPerIP == 0 &&
+		ratePolicy.MaxFailuresPerUser == 0 &&
+		ratePolicy.UserLockThreshold == 0 &&
+		ratePolicy.UserLockTTL == 0 &&
+		ratePolicy.PermanentUserLockThreshold == 0 {
 		ratePolicy = DefaultRateLimitPolicy()
+	}
+	if ratePolicy.PermanentUserLockThreshold <= 0 {
+		ratePolicy.PermanentUserLockThreshold = DefaultRateLimitPolicy().PermanentUserLockThreshold
 	}
 
 	return &Service{
@@ -86,6 +100,8 @@ func NewService(
 		now: func() time.Time {
 			return time.Now().UTC()
 		},
+		ioPool:  newIOPool(),
+		cpuPool: newCPUPool(),
 	}
 }
 
@@ -111,13 +127,15 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 	}
 	var passwordUser *userdomain.Model
 	if methodType == pluginport.AuthnMethodTypePassword {
-		passwordUser, err = s.preparePasswordAuthentication(ctx, input.Username, input.IPAddress)
+		passwordUser, err = runWithPool(ctx, s.ioPool, func(execCtx context.Context) (*userdomain.Model, error) {
+			return s.preparePasswordAuthentication(execCtx, input.Username, input.IPAddress)
+		})
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	authnResult, err := method.Authenticate(ctx, pluginport.AuthenticateInput{
+	authnInput := pluginport.AuthenticateInput{
 		Username:    input.Username,
 		Password:    input.Password,
 		RedirectURI: input.RedirectURI,
@@ -126,10 +144,21 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 		Code:        input.Code,
 		Nonce:       input.Nonce,
 		User:        passwordUser,
+	}
+	authnResult, err := runWithPool(ctx, s.ioPool, func(execCtx context.Context) (*pluginport.AuthenticateResult, error) {
+		if methodType == pluginport.AuthnMethodTypePassword {
+			return runWithPool(execCtx, s.cpuPool, func(cpuCtx context.Context) (*pluginport.AuthenticateResult, error) {
+				return method.Authenticate(cpuCtx, authnInput)
+			})
+		}
+		return method.Authenticate(execCtx, authnInput)
 	})
 	if err != nil {
 		if methodType == pluginport.AuthnMethodTypePassword && errors.Is(err, ErrInvalidCredentials) {
-			return nil, s.registerPasswordFailure(ctx, input.Username, input.IPAddress, passwordUser)
+			_, failureErr := runWithPool(ctx, s.ioPool, func(execCtx context.Context) (struct{}, error) {
+				return struct{}{}, s.registerPasswordFailure(execCtx, input.Username, input.IPAddress, passwordUser)
+			})
+			return nil, failureErr
 		}
 		return nil, err
 	}
@@ -140,12 +169,17 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 	}
 	if authnResult == nil || !authnResult.Handled || !authnResult.Authenticated {
 		if methodType == pluginport.AuthnMethodTypePassword {
-			return nil, s.registerPasswordFailure(ctx, input.Username, input.IPAddress, passwordUser)
+			_, failureErr := runWithPool(ctx, s.ioPool, func(execCtx context.Context) (struct{}, error) {
+				return struct{}{}, s.registerPasswordFailure(execCtx, input.Username, input.IPAddress, passwordUser)
+			})
+			return nil, failureErr
 		}
 		return nil, ErrInvalidCredentials
 	}
 
-	user, err := s.resolveUser(ctx, authnResult)
+	user, err := runWithPool(ctx, s.ioPool, func(execCtx context.Context) (*userdomain.Model, error) {
+		return s.resolveUser(execCtx, authnResult)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -160,11 +194,8 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 	}
 
 	now := s.now()
-	if err := s.userRepo.ResetFailedLogin(ctx, user.ID, now); err != nil {
-		return nil, err
-	}
 	if methodType == pluginport.AuthnMethodTypePassword {
-		if err := s.resetPasswordRateLimit(ctx, user.Username); err != nil {
+		if err := s.resetPasswordRateLimit(ctx, user.Username, input.IPAddress); err != nil {
 			return nil, err
 		}
 	}
@@ -205,7 +236,9 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 			}, ErrMFARequired
 		}
 		if s.forceMFAEnrollment {
-			result, err := s.createSession(ctx, user, methodType, input.IPAddress, input.UserAgent, authnResult.RedirectURI, input.ReturnTo, now)
+			result, err := runWithPool(ctx, s.ioPool, func(execCtx context.Context) (*AuthenticateResult, error) {
+				return s.createSession(execCtx, user, methodType, input.IPAddress, input.UserAgent, authnResult.RedirectURI, input.ReturnTo, now)
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -214,7 +247,9 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 		}
 	}
 
-	return s.createSession(ctx, user, methodType, input.IPAddress, input.UserAgent, authnResult.RedirectURI, input.ReturnTo, now)
+	return runWithPool(ctx, s.ioPool, func(execCtx context.Context) (*AuthenticateResult, error) {
+		return s.createSession(execCtx, user, methodType, input.IPAddress, input.UserAgent, authnResult.RedirectURI, input.ReturnTo, now)
+	})
 }
 
 func (s *Service) VerifyTOTP(ctx context.Context, input VerifyTOTPInput) (*AuthenticateResult, error) {
@@ -574,12 +609,12 @@ func (s *Service) preparePasswordAuthentication(ctx context.Context, username, i
 	username = strings.TrimSpace(username)
 	ipAddress = strings.TrimSpace(ipAddress)
 
-	if s.rateLimits != nil && s.ratePolicy.MaxFailuresPerIP > 0 && ipAddress != "" {
-		failures, err := s.rateLimits.GetLoginFailByIP(ctx, ipAddress)
+	if s.rateLimits != nil && ipAddress != "" {
+		locked, err := s.rateLimits.IsIPLocked(ctx, ipAddress)
 		if err != nil {
 			return nil, err
 		}
-		if failures >= s.ratePolicy.MaxFailuresPerIP {
+		if locked {
 			return nil, ErrRateLimited
 		}
 	}
@@ -598,16 +633,6 @@ func (s *Service) preparePasswordAuthentication(ctx context.Context, username, i
 		}
 	}
 
-	if s.rateLimits != nil && s.ratePolicy.MaxFailuresPerUser > 0 && username != "" {
-		failures, err := s.rateLimits.GetLoginFailByUser(ctx, username)
-		if err != nil {
-			return nil, err
-		}
-		if failures >= s.ratePolicy.MaxFailuresPerUser {
-			return nil, ErrRateLimited
-		}
-	}
-
 	return user, nil
 }
 
@@ -615,63 +640,97 @@ func (s *Service) registerPasswordFailure(ctx context.Context, username, ipAddre
 	username = strings.TrimSpace(username)
 	ipAddress = strings.TrimSpace(ipAddress)
 
-	rateLimited := false
-	if s.rateLimits != nil && s.ratePolicy.FailureWindow > 0 {
-		if s.ratePolicy.MaxFailuresPerUser > 0 && username != "" {
-			failures, err := s.rateLimits.IncrementLoginFailByUser(ctx, username, s.ratePolicy.FailureWindow)
-			if err != nil {
-				return err
-			}
-			if failures >= s.ratePolicy.MaxFailuresPerUser {
-				rateLimited = true
-			}
+	if s.rateLimits == nil {
+		return ErrInvalidCredentials
+	}
+
+	userID := ""
+	if user != nil && user.ID > 0 {
+		userID = strconv.FormatInt(user.ID, 10)
+	}
+
+	if s.ratePolicy.FailureWindow > 0 && s.ratePolicy.MaxFailuresPerUser > 0 && username != "" {
+		result, err := s.rateLimits.IncrementLoginFailByUser(
+			ctx,
+			username,
+			userID,
+			s.ratePolicy.FailureWindow,
+			s.ratePolicy.UserLockThreshold,
+			s.ratePolicy.UserLockTTL,
+		)
+		if err != nil {
+			return err
 		}
-		if s.ratePolicy.MaxFailuresPerIP > 0 && ipAddress != "" {
-			failures, err := s.rateLimits.IncrementLoginFailByIP(ctx, ipAddress, s.ratePolicy.FailureWindow)
-			if err != nil {
-				return err
-			}
-			if failures >= s.ratePolicy.MaxFailuresPerIP {
-				rateLimited = true
-			}
+		if result != nil && result.Locked {
+			return ErrUserLocked
 		}
 	}
 
-	if user == nil {
-		var err error
-		user, err = s.lookupUserByUsername(ctx, username)
+	if s.ratePolicy.FailureWindow > 0 && s.ratePolicy.MaxFailuresPerIP > 0 && ipAddress != "" {
+		result, err := s.rateLimits.IncrementLoginFailByIP(
+			ctx,
+			ipAddress,
+			s.ratePolicy.FailureWindow,
+			s.ratePolicy.MaxFailuresPerIP,
+			s.ratePolicy.UserLockTTL,
+		)
 		if err != nil {
 			return err
+		}
+		if result != nil && result.Locked {
+			return ErrRateLimited
 		}
 	}
-	if user != nil {
-		failures, err := s.userRepo.IncrementFailedLogin(ctx, user.ID)
+
+	if userID != "" && username != "" && s.ratePolicy.PermanentUserLockThreshold > 0 {
+		result, err := s.rateLimits.IncrementBlacklistByUser(ctx, username, userID, s.ratePolicy.PermanentUserLockThreshold)
 		if err != nil {
 			return err
 		}
-		if s.rateLimits != nil && s.ratePolicy.UserLockThreshold > 0 && int64(failures) >= s.ratePolicy.UserLockThreshold {
-			if err := s.rateLimits.SetUserLock(ctx, strconv.FormatInt(user.ID, 10), s.ratePolicy.UserLockTTL); err != nil {
+		if result != nil && result.Locked {
+			locker, ok := s.userRepo.(userAccountLocker)
+			if !ok {
+				_ = s.rateLimits.ClearUserLock(ctx, userID)
+				return fmt.Errorf("user lock is not supported by repository")
+			}
+			if user == nil {
+				_ = s.rateLimits.ClearUserLock(ctx, userID)
+				return fmt.Errorf("missing user model for lock persistence")
+			}
+			if err := locker.LockAccount(ctx, user.ID, s.now()); err != nil {
+				_ = s.rateLimits.ClearUserLock(ctx, userID)
 				return err
 			}
 			return ErrUserLocked
 		}
 	}
 
-	if rateLimited {
-		return ErrRateLimited
-	}
 	return ErrInvalidCredentials
 }
 
-func (s *Service) resetPasswordRateLimit(ctx context.Context, username string) error {
+func (s *Service) resetPasswordRateLimit(ctx context.Context, username, ipAddress string) error {
 	if s.rateLimits == nil {
 		return nil
 	}
 	username = strings.TrimSpace(username)
-	if username == "" {
-		return nil
+	if username != "" {
+		if err := s.rateLimits.ResetLoginFailByUser(ctx, username); err != nil {
+			return err
+		}
+		if err := s.rateLimits.ResetBlacklistByUser(ctx, username); err != nil {
+			return err
+		}
 	}
-	return s.rateLimits.ResetLoginFailByUser(ctx, username)
+	ipAddress = strings.TrimSpace(ipAddress)
+	if ipAddress != "" {
+		if err := s.rateLimits.ResetLoginFailByIP(ctx, ipAddress); err != nil {
+			return err
+		}
+		if err := s.rateLimits.ClearIPLock(ctx, ipAddress); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) lookupUserByUsername(ctx context.Context, username string) (*userdomain.Model, error) {

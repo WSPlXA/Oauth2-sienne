@@ -7,7 +7,7 @@
 -- ARGV:
 --   ARGV[1] = counter TTL (seconds), applied only on first increment
 --   ARGV[2] = threshold to trigger lock
---   ARGV[3] = lock TTL (seconds)
+--   ARGV[3] = lock TTL (seconds); <=0 means permanent lock (no expiration)
 --
 -- Return:
 --   { count, ttl, locked }
@@ -28,8 +28,12 @@ end
 
 local locked = 0
 -- Lock only when all guard conditions are valid and threshold is reached.
-if KEYS[2] ~= "" and threshold > 0 and lock_ttl > 0 and count >= threshold then
-    redis.call("SET", KEYS[2], "1", "EX", lock_ttl)
+if KEYS[2] ~= "" and threshold > 0 and count >= threshold then
+    if lock_ttl > 0 then
+        redis.call("SET", KEYS[2], "1", "EX", lock_ttl)
+    else
+        redis.call("SET", KEYS[2], "1")
+    end
     locked = 1
 end
 
