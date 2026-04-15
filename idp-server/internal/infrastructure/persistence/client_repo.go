@@ -130,7 +130,7 @@ func (r *ClientRepository) loadStrings(ctx context.Context, query string, client
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var values []string
 	for rows.Next() {

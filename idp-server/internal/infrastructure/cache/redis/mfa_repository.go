@@ -55,7 +55,7 @@ func (r *MFARepository) DeleteTOTPEnrollment(ctx context.Context, sessionID stri
 }
 
 func (r *MFARepository) ReserveTOTPStepUse(ctx context.Context, userID, purpose string, step int64, ttl time.Duration) (bool, error) {
-	ok, err := r.rdb.SetNX(ctx, r.key.TOTPStepUsed(userID, purpose, step), "1", ttl).Result()
+	ok, err := r.rdb.Set(ctx, r.key.TOTPStepUsed(userID, purpose, step), "1", ttl).NX().Result()
 	if err != nil {
 		return false, err
 	}

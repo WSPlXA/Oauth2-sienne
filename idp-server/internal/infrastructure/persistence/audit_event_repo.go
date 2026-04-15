@@ -116,7 +116,7 @@ func (r *AuditEventRepository) List(ctx context.Context, input repositoryport.Li
 	if err != nil {
 		return nil, fmt.Errorf("query audit events: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	events := make([]*auditdomain.Model, 0, limit)
 	for rows.Next() {

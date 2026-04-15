@@ -11,10 +11,6 @@ import (
 	"idp-server/internal/ports/repository"
 )
 
-type tokenValidator interface {
-	ParseAndValidate(token string, opts any) (map[string]any, error)
-}
-
 type jwtValidator interface {
 	ParseAndValidate(token string, opts ValidateOptions) (map[string]any, error)
 }
@@ -105,7 +101,7 @@ func (s *Service) GetUserInfo(ctx context.Context, input UserInfoInput) (*UserIn
 
 func (s *Service) Discovery(ctx context.Context) (*DiscoveryDocument, error) {
 	_ = ctx
-	// Discovery 文档把当前服务支持的 OIDC/OAuth 能力一次性声明出来，
+	// Discovery 文档把当前服务支持 of OIDC/OAuth 能力一次性声明出来，
 	// 方便客户端自动发现端点和支持的认证方式。
 	base := strings.TrimRight(s.issuer, "/")
 	return &DiscoveryDocument{

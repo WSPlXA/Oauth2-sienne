@@ -225,7 +225,7 @@ func (p *OIDCProvider) loadDiscovery(ctx context.Context) (*oidcDiscoveryDocumen
 	if err != nil {
 		return nil, fmt.Errorf("oidc discovery request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("oidc discovery request returned %s", resp.Status)
@@ -271,7 +271,7 @@ func (p *OIDCProvider) exchangeCode(ctx context.Context, metadata *oidcDiscovery
 	if err != nil {
 		return nil, fmt.Errorf("oidc token request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -303,7 +303,7 @@ func (p *OIDCProvider) fetchUserInfo(ctx context.Context, endpoint, accessToken 
 	if err != nil {
 		return nil, fmt.Errorf("oidc userinfo request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

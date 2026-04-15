@@ -31,7 +31,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("connect redis: %v", err)
 	}
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	keyBuilder := cacheRedis.NewKeyBuilder(readEnv("REDIS_KEY_PREFIX", "idp"), readEnv("APP_ENV", "dev"))
 	dlqStream := readEnv("AUDIT_DLQ_STREAM", keyBuilder.AuditDLQStream())
