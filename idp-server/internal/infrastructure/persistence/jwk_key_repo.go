@@ -33,7 +33,7 @@ func (r *JWKKeyRepository) ListCurrent(ctx context.Context) ([]JWKKeyRecord, err
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var records []JWKKeyRecord
 	for rows.Next() {

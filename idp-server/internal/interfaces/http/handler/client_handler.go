@@ -43,7 +43,7 @@ func (h *ClientHandler) Create(c *gin.Context) {
 		Status:                  req.Status,
 	})
 	if err != nil {
-		status := http.StatusBadRequest
+		var status int
 		switch {
 		case errors.Is(err, appclient.ErrClientIDAlreadyExists):
 			status = http.StatusConflict
