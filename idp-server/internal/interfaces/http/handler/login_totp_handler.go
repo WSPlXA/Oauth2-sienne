@@ -100,7 +100,7 @@ func (h *LoginTOTPHandler) Handle(c *gin.Context) {
 		UserAgent:   c.GetHeader("User-Agent"),
 	})
 	if err != nil {
-		status := http.StatusUnauthorized
+		var status int
 		switch {
 		case errors.Is(err, authn.ErrMFAChallengeExpired):
 			status = http.StatusUnauthorized

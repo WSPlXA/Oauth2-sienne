@@ -61,7 +61,7 @@ func (h *LoginPushHandler) Handle(c *gin.Context) {
 		UserAgent:         c.GetHeader("User-Agent"),
 	})
 	if err != nil {
-		status := http.StatusBadRequest
+		var status int
 		switch {
 		case errors.Is(err, authn.ErrMFAApproverMismatch):
 			status = http.StatusForbidden

@@ -146,7 +146,7 @@ func (h *LoginHandler) handleAuthenticate(c *gin.Context, req dto.LoginRequest) 
 	})
 	if err != nil {
 		log.Printf("login authenticate_failed method=%q ip=%s username=%q err=%v", req.Method, c.ClientIP(), req.Username, err)
-		status := http.StatusUnauthorized
+		var status int
 		switch {
 		case errors.Is(err, authn.ErrMFARequired):
 			status = http.StatusUnauthorized
