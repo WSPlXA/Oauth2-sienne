@@ -23,7 +23,7 @@ func (r *OperatorRoleRepository) Upsert(ctx context.Context, model *operatorrole
 		operatorRoleRepositorySQL.upsert,
 		model.RoleCode,
 		model.DisplayName,
-		model.Descriptionf,
+		model.Description,
 		model.PrivilegeMask,
 		model.IsSystem,
 	)
