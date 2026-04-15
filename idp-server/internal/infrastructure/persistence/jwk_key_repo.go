@@ -1,86 +1,108 @@
-package handler
+package persistence
 
 import (
-	"errors"
-	"net/http"
-
-	appclient "idp-server/internal/application/client"
-	"idp-server/internal/interfaces/http/dto"
-
-	"github.com/gin-gonic/gin"
+	"context"
+	"database/sql"
+	"time"
 )
 
-type ClientHandler struct {
-	service appclient.Creator
+type JWKKeyRecord struct {
+	ID            int64
+	KID           string
+	KTY           string
+	Alg           string
+	UseType       string
+	PublicJWKJSON string
+	PrivateKeyRef string
+	IsActive      bool
+	CreatedAt     time.Time
+	RotatesAt     *time.Time
+	DeactivatedAt *time.Time
 }
 
-func NewClientHandler(service appclient.Creator) *ClientHandler {
-	return &ClientHandler{service: service}
+type JWKKeyRepository struct {
+	db *sql.DB
 }
 
-func (h *ClientHandler) Create(c *gin.Context) {
-	var req dto.CreateClientRequest
-	if err := c.ShouldBind(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client request"})
-		return
-	}
+func NewJWKKeyRepository(db *sql.DB) *JWKKeyRepository {
+	return &JWKKeyRepository{db: db}
+}
 
-	result, err := h.service.CreateClient(c.Request.Context(), appclient.CreateClientInput{
-		ClientID:                req.ClientID,
-		ClientName:              req.ClientName,
-		ClientSecret:            req.ClientSecret,
-		ClientType:              req.ClientType,
-		TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
-		RequirePKCE:             req.RequirePKCE,
-		RequireConsent:          req.RequireConsent,
-		AccessTokenTTLSeconds:   req.AccessTokenTTLSeconds,
-		RefreshTokenTTLSeconds:  req.RefreshTokenTTLSeconds,
-		IDTokenTTLSeconds:       req.IDTokenTTLSeconds,
-		GrantTypes:              req.GrantTypes,
-		Scopes:                  req.Scopes,
-		RedirectURIs:            req.RedirectURIs,
-		PostLogoutRedirectURIs:  req.PostLogoutRedirectURIs,
-		Status:                  req.Status,
-	})
+func (r *JWKKeyRepository) ListCurrent(ctx context.Context) ([]JWKKeyRecord, error) {
+	rows, err := r.db.QueryContext(ctx, jwkKeyRepositorySQL.listCurrentKeys)
 	if err != nil {
-		var status int
-		switch {
-		case errors.Is(err, appclient.ErrClientIDAlreadyExists):
-			status = http.StatusConflict
-		case errors.Is(err, appclient.ErrInvalidClientID),
-			errors.Is(err, appclient.ErrInvalidClientName),
-			errors.Is(err, appclient.ErrInvalidClientType),
-			errors.Is(err, appclient.ErrInvalidClientSecret),
-			errors.Is(err, appclient.ErrInvalidAuthMethod),
-			errors.Is(err, appclient.ErrInvalidGrantType),
-			errors.Is(err, appclient.ErrInvalidScope),
-			errors.Is(err, appclient.ErrRedirectURIRequired),
-			errors.Is(err, appclient.ErrInvalidRedirectURI),
-			errors.Is(err, appclient.ErrInvalidClientConfig):
-			status = http.StatusBadRequest
-		default:
-			status = http.StatusInternalServerError
-		}
+		return nil, err
+	}
+	defer rows.Close()
 
-		c.JSON(status, gin.H{"error": err.Error()})
-		return
+	var records []JWKKeyRecord
+	for rows.Next() {
+		var record JWKKeyRecord
+		var privateKeyRef sql.NullString
+		var rotatesAt sql.NullTime
+		var deactivatedAt sql.NullTime
+		if err := rows.Scan(
+			&record.ID,
+			&record.KID,
+			&record.KTY,
+			&record.Alg,
+			&record.UseType,
+			&record.PublicJWKJSON,
+			&privateKeyRef,
+			&record.IsActive,
+			&record.CreatedAt,
+			&rotatesAt,
+			&deactivatedAt,
+		); err != nil {
+			return nil, err
+		}
+		record.PrivateKeyRef = privateKeyRef.String
+		if rotatesAt.Valid {
+			value := rotatesAt.Time
+			record.RotatesAt = &value
+		}
+		if deactivatedAt.Valid {
+			value := deactivatedAt.Time
+			record.DeactivatedAt = &value
+		}
+		records = append(records, record)
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"client_id":                  result.ClientID,
-		"client_name":                result.ClientName,
-		"client_type":                result.ClientType,
-		"token_endpoint_auth_method": result.TokenEndpointAuthMethod,
-		"require_pkce":               result.RequirePKCE,
-		"require_consent":            result.RequireConsent,
-		"access_token_ttl_seconds":   result.AccessTokenTTLSeconds,
-		"refresh_token_ttl_seconds":  result.RefreshTokenTTLSeconds,
-		"id_token_ttl_seconds":       result.IDTokenTTLSeconds,
-		"grant_types":                result.GrantTypes,
-		"auth_methods":               result.AuthMethods,
-		"scopes":                     result.Scopes,
-		"redirect_uris":              result.RedirectURIs,
-		"post_logout_redirect_uris":  result.PostLogoutRedirectURIs,
-		"status":                     result.Status,
-	})
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return records, nil
+}
+
+func (r *JWKKeyRepository) CreateActiveKey(ctx context.Context, record JWKKeyRecord, retiresExistingAt time.Time) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if _, err := tx.ExecContext(ctx, jwkKeyRepositorySQL.deactivateActive, retiresExistingAt, retiresExistingAt); err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(
+		ctx,
+		jwkKeyRepositorySQL.insertActiveKey,
+		record.KID,
+		record.KTY,
+		record.Alg,
+		record.UseType,
+		record.PublicJWKJSON,
+		nullString(record.PrivateKeyRef),
+		record.CreatedAt,
+		nullTime(record.RotatesAt),
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
