@@ -2,6 +2,7 @@
 --
 -- KEYS:
 --   KEYS[1] = challenge hash key
+--   KEYS[2] = challenge state key (packed u32 state + u32 version)
 --
 -- ARGV:
 --   ARGV[1]  = challenge_id
@@ -31,8 +32,40 @@ local ttl = tonumber(ARGV[16]) or 0
 local next_state = tonumber(ARGV[17]) or 0
 local expected_ver = tonumber(ARGV[18]) or -1
 
-local cur_ver = tonumber(redis.call("HGET", KEYS[1], "state_ver") or "0")
-local cur_state = tonumber(redis.call("HGET", KEYS[1], "state_mask") or "0")
+local cur_pair = redis.call("BITFIELD", KEYS[2], "GET", "u32", 0, "GET", "u32", 32)
+local cur_state = tonumber(cur_pair[1]) or 0
+local cur_ver = tonumber(cur_pair[2]) or 0
+
+-- migration fallback for records that still keep state in hash fields.
+if cur_ver == 0 then
+    cur_ver = tonumber(redis.call("HGET", KEYS[1], "state_ver") or "0")
+end
+if cur_state == 0 then
+    local old_mask = tonumber(redis.call("HGET", KEYS[1], "state_mask") or "0")
+    if old_mask > 0 then
+        cur_state = old_mask
+    else
+        local hash_mode = redis.call("HGET", KEYS[1], "mfa_mode") or ""
+        local hash_push = redis.call("HGET", KEYS[1], "push_status") or ""
+        local hash_passkey = redis.call("HGET", KEYS[1], "passkey_session_json") or ""
+        if hash_mode == "passkey_totp_fallback" then
+            cur_state = bit.bor(cur_state, 2)
+        elseif hash_mode == "push_totp_fallback" then
+            cur_state = bit.bor(cur_state, 4)
+        end
+        if hash_push == "approved" then
+            cur_state = bit.bor(cur_state, 8)
+        elseif hash_push == "denied" then
+            cur_state = bit.bor(cur_state, 16)
+        end
+        if hash_passkey ~= "" then
+            cur_state = bit.bor(cur_state, 32)
+        end
+        if cur_state ~= 0 then
+            cur_state = bit.bor(cur_state, 1)
+        end
+    end
+end
 
 if expected_ver >= 0 and cur_ver ~= expected_ver then
     return {-2, cur_ver}
@@ -98,13 +131,17 @@ redis.call("HSET", KEYS[1],
     "approver_user_id", ARGV[12],
     "decided_at", ARGV[13],
     "passkey_session_json", ARGV[14],
-    "expires_at", ARGV[15],
-    "state_mask", next_state,
-    "state_ver", next_ver
+    "expires_at", ARGV[15]
+)
+
+redis.call("BITFIELD", KEYS[2],
+    "SET", "u32", 0, next_state,
+    "SET", "u32", 32, next_ver
 )
 
 if ttl > 0 then
     redis.call("EXPIRE", KEYS[1], ttl)
+    redis.call("EXPIRE", KEYS[2], ttl)
 end
 
 return {1, next_ver}

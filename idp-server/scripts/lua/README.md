@@ -20,6 +20,7 @@ Atomically writes the browser session hash and the reverse user-to-session index
 
 - `KEYS[1]`: session hash key
 - `KEYS[2]`: user session set key
+- `KEYS[3]`: session state key (packed `u32 state + u32 version`)
 - `ARGV[1]`: session id
 - `ARGV[2]`: user id
 - `ARGV[3]`: subject
@@ -40,9 +41,10 @@ Atomically deletes the session hash and removes the session id from the user rev
 
 - `KEYS[1]`: session hash key
 - `KEYS[2]`: user session set key
+- `KEYS[3]`: session state key
 - `ARGV[1]`: session id
 
-Returns `{deleted_session_count, removed_index_count}`.
+Returns `{deleted_session_count, removed_index_count, deleted_state_count}`.
 
 ### `consume_authorization_code.lua`
 
@@ -84,6 +86,7 @@ Returns `1` when reserved and `0` when it already exists.
 Creates or updates an MFA challenge hash with bitmask state and optimistic CAS.
 
 - `KEYS[1]`: mfa challenge hash key
+- `KEYS[2]`: mfa challenge state key (packed `u32 state + u32 version`)
 - `ARGV[1]`~`ARGV[15]`: challenge payload fields
 - `ARGV[16]`: ttl seconds
 - `ARGV[17]`: next state mask (u32)

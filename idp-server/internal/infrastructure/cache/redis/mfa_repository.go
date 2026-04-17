@@ -81,7 +81,7 @@ func (r *MFARepository) SaveMFAChallenge(ctx context.Context, entry cacheport.MF
 		ctx,
 		r.scripts.saveMFAChallenge,
 		r.rdb,
-		[]string{key},
+		[]string{key, r.key.MFAChallengeState(entry.ChallengeID)},
 		entry.ChallengeID,
 		entry.UserID,
 		entry.Subject,
@@ -125,9 +125,13 @@ func (r *MFARepository) SaveMFAChallenge(ctx context.Context, entry cacheport.MF
 }
 
 func (r *MFARepository) GetMFAChallenge(ctx context.Context, challengeID string) (*cacheport.MFAChallengeEntry, error) {
-	values, err := r.rdb.HMGet(
+	challengeKey := r.key.MFAChallenge(challengeID)
+	stateKey := r.key.MFAChallengeState(challengeID)
+
+	pipe := r.rdb.Pipeline()
+	valuesCmd := pipe.HMGet(
 		ctx,
-		r.key.MFAChallenge(challengeID),
+		challengeKey,
 		"challenge_id",
 		"user_id",
 		"subject",
@@ -145,7 +149,16 @@ func (r *MFARepository) GetMFAChallenge(ctx context.Context, challengeID string)
 		"expires_at",
 		"state_mask",
 		"state_ver",
-	).Result()
+	)
+	stateCmd := pipe.BitField(ctx, stateKey, "GET", "u32", "0", "GET", "u32", "32")
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, err
+	}
+	values, err := valuesCmd.Result()
+	if err != nil {
+		return nil, err
+	}
+	stateValues, err := stateCmd.Result()
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +168,14 @@ func (r *MFARepository) GetMFAChallenge(ctx context.Context, challengeID string)
 	mode := readRedisString(values[8])
 	pushStatus := readRedisString(values[9])
 	passkeySessionJSON := readRedisString(values[13])
-	stateMask := cacheport.NormalizeMFAChallengeStateMask(parseUint32(readRedisString(values[15])), mode, pushStatus, passkeySessionJSON)
+	stateMask, stateVersion := decodePackedState(stateValues)
+	if stateMask == 0 {
+		stateMask = parseUint32(readRedisString(values[15]))
+	}
+	if stateVersion == 0 {
+		stateVersion = parseUint32(readRedisString(values[16]))
+	}
+	stateMask = cacheport.NormalizeMFAChallengeStateMask(stateMask, mode, pushStatus, passkeySessionJSON)
 	return &cacheport.MFAChallengeEntry{
 		ChallengeID:        readRedisString(values[0]),
 		UserID:             readRedisString(values[1]),
@@ -173,12 +193,12 @@ func (r *MFARepository) GetMFAChallenge(ctx context.Context, challengeID string)
 		PasskeySessionJSON: passkeySessionJSON,
 		ExpiresAt:          parseTime(readRedisString(values[14])),
 		StateMask:          stateMask,
-		StateVersion:       parseUint32(readRedisString(values[16])),
+		StateVersion:       stateVersion,
 	}, nil
 }
 
 func (r *MFARepository) DeleteMFAChallenge(ctx context.Context, challengeID string) error {
-	return r.rdb.Del(ctx, r.key.MFAChallenge(challengeID)).Err()
+	return r.rdb.Del(ctx, r.key.MFAChallenge(challengeID), r.key.MFAChallengeState(challengeID)).Err()
 }
 
 func toInt64(value any) int64 {

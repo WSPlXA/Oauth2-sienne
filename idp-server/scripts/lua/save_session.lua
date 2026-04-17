@@ -3,6 +3,7 @@
 -- KEYS:
 --   KEYS[1] = session hash key
 --   KEYS[2] = session index set key
+--   KEYS[3] = session state key (packed u32 state + u32 version)
 --
 -- ARGV:
 --   ARGV[1]  = set member representing this session
@@ -35,14 +36,18 @@ redis.call("HSET", KEYS[1],
     "user_agent", ARGV[7],
     "authenticated_at", ARGV[8],
     "expires_at", ARGV[9],
-    "status", ARGV[10],
-    "state_mask", state_mask,
-    "state_ver", state_ver
+    "status", ARGV[10]
+)
+
+redis.call("BITFIELD", KEYS[3],
+    "SET", "u32", 0, state_mask,
+    "SET", "u32", 32, state_ver
 )
 
 -- Optional expiration for session hash.
 if ttl > 0 then
     redis.call("EXPIRE", KEYS[1], ttl)
+    redis.call("EXPIRE", KEYS[3], ttl)
 end
 
 -- Maintain reverse index for session enumeration.

@@ -46,6 +46,7 @@ func (r *SessionCacheRepository) Save(ctx context.Context, entry cacheport.Sessi
 		[]string{
 			r.key.Session(entry.SessionID),
 			r.key.UserSessionIndex(entry.UserID),
+			r.key.SessionState(entry.SessionID),
 		},
 		entry.SessionID,
 		entry.UserID,
@@ -66,10 +67,13 @@ func (r *SessionCacheRepository) Save(ctx context.Context, entry cacheport.Sessi
 
 func (r *SessionCacheRepository) Get(ctx context.Context, sessionID string) (*cacheport.SessionCacheEntry, error) {
 	// 热路径改为固定字段 HMGET，避免 HGETALL map 分配和哈希遍历。
-	key := r.key.Session(sessionID)
-	values, err := r.rdb.HMGet(
+	sessionKey := r.key.Session(sessionID)
+	stateKey := r.key.SessionState(sessionID)
+
+	pipe := r.rdb.Pipeline()
+	valuesCmd := pipe.HMGet(
 		ctx,
-		key,
+		sessionKey,
 		"user_id",
 		"subject",
 		"acr",
@@ -79,9 +83,16 @@ func (r *SessionCacheRepository) Get(ctx context.Context, sessionID string) (*ca
 		"authenticated_at",
 		"expires_at",
 		"status",
-		"state_mask",
-		"state_ver",
-	).Result()
+	)
+	stateCmd := pipe.BitField(ctx, stateKey, "GET", "u32", "0", "GET", "u32", "32")
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, err
+	}
+	values, err := valuesCmd.Result()
+	if err != nil {
+		return nil, err
+	}
+	stateValues, err := stateCmd.Result()
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +102,10 @@ func (r *SessionCacheRepository) Get(ctx context.Context, sessionID string) (*ca
 
 	authenticatedAt := parseTime(readRedisString(values[6]))
 	expiresAt := parseTime(readRedisString(values[7]))
-	stateMask := cacheport.NormalizeSessionStateMask(parseUint32(readRedisString(values[9])), readRedisString(values[8]))
-	status := cacheport.SessionStatusFromMask(stateMask, readRedisString(values[8]))
+	status := readRedisString(values[8])
+	stateMask, stateVersion := decodePackedState(stateValues)
+	stateMask = cacheport.NormalizeSessionStateMask(stateMask, status)
+	status = cacheport.SessionStatusFromMask(stateMask, status)
 
 	return &cacheport.SessionCacheEntry{
 		SessionID:       sessionID,
@@ -106,7 +119,7 @@ func (r *SessionCacheRepository) Get(ctx context.Context, sessionID string) (*ca
 		ExpiresAt:       expiresAt.UTC(),
 		Status:          status,
 		StateMask:       stateMask,
-		StateVersion:    parseUint32(readRedisString(values[10])),
+		StateVersion:    stateVersion,
 	}, nil
 }
 
@@ -128,6 +141,7 @@ func (r *SessionCacheRepository) Delete(ctx context.Context, sessionID string) e
 		[]string{
 			r.key.Session(sessionID),
 			r.key.UserSessionIndex(entry.UserID),
+			r.key.SessionState(sessionID),
 		},
 		sessionID,
 	).Result()
@@ -167,4 +181,14 @@ func readRedisString(value any) string {
 	default:
 		return ""
 	}
+}
+
+func decodePackedState(values []int64) (mask uint32, version uint32) {
+	if len(values) > 0 && values[0] > 0 {
+		mask = uint32(values[0])
+	}
+	if len(values) > 1 && values[1] > 0 {
+		version = uint32(values[1])
+	}
+	return mask, version
 }
