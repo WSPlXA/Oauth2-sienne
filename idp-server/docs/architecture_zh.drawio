@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" type="device">
+    <diagram id="architect-v7-zh" name="Sienne IdP 技术全景架构图">
+        <mxGraphModel dx="2800" dy="2000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1654" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                
+                <!-- ZONE: CONFIGURATION & BOOTSTRAP -->
+                <mxCell id="zone-boot" value="启动与配置层 (Boot &amp; Configuration)" style="swimlane;whiteSpace=wrap;html=1;startSize=23;fillColor=#f5f5f5;" vertex="1" parent="1">
+                    <mxGeometry x="620" y="-300" width="800" height="240" as="geometry"/>
+                </mxCell>
+                <mxCell id="boot-config" value="配置加载 (loadConfig)&#10;- 环境变量 (ISSUER, TTL)&#10;- YAML 配置文件 (idp.docker.yaml)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone-boot">
+                    <mxGeometry x="20" y="40" width="220" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="boot-wire" value="依赖注入中心: Wire.go&#10;- initializeApp()&#10;- 依赖倒置与对象装配&#10;- 服务链初始化" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="zone-boot">
+                    <mxGeometry x="280" y="40" width="240" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="boot-adapters" value="适配器层 (Adapter)&#10;- JWT 服务适配&#10;- 密钥管理适配&#10;- 基础设施与 Port 映射" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone-boot">
+                    <mxGeometry x="540" y="40" width="240" height="60" as="geometry"/>
+                </mxCell>
+
+                <!-- ZONE: PUBLIC INTERNET -->
+                <mxCell id="zone-public" value="公共网络 (Internet)" style="swimlane;whiteSpace=wrap;html=1;startSize=23;fillColor=#f5f5f5;dashed=1;" vertex="1" parent="1">
+                    <mxGeometry x="40" y="40" width="280" height="1500" as="geometry"/>
+                </mxCell>
+                <mxCell id="actor-user" value="终端用户&#10;(移动 App / 浏览器)" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;" vertex="1" parent="zone-public">
+                    <mxGeometry x="40" y="100" width="30" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="actor-app-conf" value="机密客户端&#10;(Web 服务器 / 后端)" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;" vertex="1" parent="zone-public">
+                    <mxGeometry x="150" y="100" width="30" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="resource-server" value="资源服务器 (RS)&#10;[JWT / JWKS 校验]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone-public">
+                    <mxGeometry x="40" y="500" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="oidc-metadata" value="OIDC Discovery 文档&#10;[/.well-known/openid-conf]" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;fillColor=#fff2cc;" vertex="1" parent="zone-public">
+                    <mxGeometry x="40" y="650" width="180" height="100" as="geometry"/>
+                </mxCell>
+
+                <!-- ZONE: DMZ EDGE -->
+                <mxCell id="zone-dmz" value="DMZ (边缘安全区)" style="swimlane;whiteSpace=wrap;html=1;startSize=23;fillColor=#dae8fc;dashed=1;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="40" width="220" height="1500" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-waf" value="WAF / 抗 DDoS&#10;[限流 / IP 黑名单]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone-dmz">
+                    <mxGeometry x="30" y="100" width="160" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-lb" value="全局负载均衡&#10;[SSL/TLS 卸载]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone-dmz">
+                    <mxGeometry x="30" y="240" width="160" height="80" as="geometry"/>
+                </mxCell>
+
+                <!-- ZONE: APPLICATION VPC -->
+                <mxCell id="zone-app" value="应用层 (内部 VPC)" style="swimlane;whiteSpace=wrap;html=1;startSize=23;fillColor=#d5e8d4;dashed=1;" vertex="1" parent="1">
+                    <mxGeometry x="620" y="40" width="800" height="1500" as="geometry"/>
+                </mxCell>
+                
+                <!-- HTTP Layer -->
+                <mxCell id="layer-http" value="接口层: HTTP / Gin 框架" style="swimlane;whiteSpace=wrap;html=1;startSize=23;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone-app">
+                    <mxGeometry x="20" y="40" width="240" height="960" as="geometry"/>
+                </mxCell>
+                <mxCell id="http-middleware-stack" value="中间件链 (Middleware):&#10;1. 恐慌恢复 / 日志&#10;2. 速率限制 (Rate Limit)&#10;3. CSRF 防御&#10;4. 会话上下文 (Session)&#10;5. 后台鉴权 (32位 RBAC)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;spacingLeft=5;" vertex="1" parent="layer-http">
+                    <mxGeometry x="10" y="40" width="220" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="http-oidc" value="OIDC / OAuth2 处理器&#10;- Authorize 授权端点&#10;- Token 令牌端点&#10;- UserInfo / Introspect&#10;- JWKS / Discovery" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;" vertex="1" parent="layer-http">
+                    <mxGeometry x="10" y="170" width="220" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="http-ui" value="UI / 交互处理器&#10;- 登录 (多模式认证)&#10;- 授权同意 (Consent)&#10;- MFA 绑定与校验&#10;- 设备流 (Device Flow) UI" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;" vertex="1" parent="layer-http">
+                    <mxGeometry x="10" y="280" width="220" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="http-admin" value="后台管理处理器&#10;- RBAC 角色与权限&#10;- 用户与会话管理&#10;- 审计死信队列重放" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;" vertex="1" parent="layer-http">
+                    <mxGeometry x="10" y="390" width="220" height="100" as="geometry"/>
+                </mxCell>
+
+                <!-- Application Layer -->
+                <mxCell id="layer-logic" value="应用逻辑层: 领域服务 (Domain Services)" style="swimlane;whiteSpace=wrap;html=1;startSize=23;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="zone-app">
+                    <mxGeometry x="300" y="40" width="480" height="420" as="geometry"/>
+                </mxCell>
+                <mxCell id="svc-authn-group" value="认证服务集群 (Authn)" style="swimlane;whiteSpace=wrap;html=1;startSize=23;" vertex="1" parent="layer-logic">
+                    <mxGeometry x="10" y="40" width="460" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="svc-authn" value="认证核心逻辑" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="svc-authn-group">
+                    <mxGeometry x="10" y="40" width="130" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="svc-authn-iopool" value="IO 工作池&#10;(DB / Redis / 外部 OP)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;" vertex="1" parent="svc-authn-group">
+                    <mxGeometry x="150" y="40" width="140" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="svc-authn-cpupool" value="CPU 工作池&#10;(密码哈希 / 加解密)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;" vertex="1" parent="svc-authn-group">
+                    <mxGeometry x="300" y="40" width="140" height="80" as="geometry"/>
+                </mxCell>
+                
+                <mxCell id="svc-authz" value="授权服务 (Authz)&#10;[OIDC 流程控制]" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="layer-logic">
+                    <mxGeometry x="10" y="190" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="svc-token" value="令牌服务 (Token)&#10;[签发与轮转]" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="layer-logic">
+                    <mxGeometry x="160" y="190" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="svc-mfa" value="MFA 状态机&#10;[位掩码状态转换]" style="rounded=0;whiteSpace=wrap;html=1;fontStyle=1;strokeWidth=2;" vertex="1" parent="layer-logic">
+                    <mxGeometry x="310" y="190" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="svc-audit" value="审计流生产者&#10;[异步 XADD 写入消息队列]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="layer-logic">
+                    <mxGeometry x="10" y="260" width="460" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="layer-domain" value="领域层核心模型 (Entities)&#10;[用户, 客户端, 会话, 令牌, 角色, 审计, Passkey 凭据]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="layer-logic">
+                    <mxGeometry x="10" y="330" width="460" height="70" as="geometry"/>
+                </mxCell>
+
+                <!-- Infrastructure Layer -->
+                <mxCell id="layer-infra" value="基础设施层: Port 与适配器" style="swimlane;whiteSpace=wrap;html=1;startSize=23;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="zone-app">
+                    <mxGeometry x="300" y="480" width="480" height="420" as="geometry"/>
+                </mxCell>
+                <mxCell id="infra-plugins" value="插件策略注册中心&#10;- Grant 策略 (Code, CC, Refresh, Device)&#10;- Authn 策略 (Password, FedOIDC, MFA)&#10;- ClientAuth 策略 (Basic, Post, JWT)" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;" vertex="1" parent="layer-infra">
+                    <mxGeometry x="10" y="40" width="460" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="infra-cache" value="高性能存储核心&#10;- 32位位掩码打包存储 (State + Version)&#10;- Redis Lua 原子 CAS (乐观锁)&#10;- HMGet / 批量读取优化" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeWidth=2;fontStyle=1;" vertex="1" parent="layer-infra">
+                    <mxGeometry x="10" y="130" width="460" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="infra-sql" value="SQL 持久化适配器&#10;- MySQL 仓储实现&#10;- 审计数据异步入库" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="layer-infra">
+                    <mxGeometry x="10" y="220" width="220" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="infra-crypto" value="加密生态系统&#10;- JWT 签发与校验&#10;- 密钥管理器 (自动轮转)&#10;- 哈希与指纹算法" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="layer-infra">
+                    <mxGeometry x="250" y="220" width="220" height="60" as="geometry"/>
+                </mxCell>
+
+                <!-- Background Workers -->
+                <mxCell id="layer-workers" value="运维与后台工作者层" style="swimlane;whiteSpace=wrap;html=1;startSize=23;fillColor=#e1d5e7;dashed=1;" vertex="1" parent="zone-app">
+                    <mxGeometry x="20" y="1040" width="760" height="420" as="geometry"/>
+                </mxCell>
+                <mxCell id="worker-audit" value="审计流消费者 (Consumer)&#10;- 分组: &quot;audit_group&quot;&#10;- 行为: 批量写入 MySQL&#10;- 异常: 写入死信队列 (DLQ)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeWidth=2;" vertex="1" parent="layer-workers">
+                    <mxGeometry x="20" y="50" width="340" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="worker-tasks" value="系统定时任务&#10;- 过期会话与 Nonce 清理&#10;- 签名密钥轮换监控 (Watcher)&#10;- 防重放缓存自动逐出" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;" vertex="1" parent="layer-workers">
+                    <mxGeometry x="400" y="50" width="340" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="worker-dlq" value="死信重放工具 (DLQ Replay)&#10;- cmd/replay_audit_dlq&#10;- 生产环境故障数据恢复" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;" vertex="1" parent="layer-workers">
+                    <mxGeometry x="20" y="170" width="340" height="70" as="geometry"/>
+                </mxCell>
+
+                <!-- ZONE: DATA PERSISTENCE -->
+                <mxCell id="zone-data" value="隔离数据层 (Data Layer)" style="swimlane;whiteSpace=wrap;html=1;startSize=23;fillColor=#ffe6cc;dashed=1;" vertex="1" parent="1">
+                    <mxGeometry x="1460" y="40" width="360" height="1500" as="geometry"/>
+                </mxCell>
+                <mxCell id="db-mysql" value="MySQL 主从集群&#10;[实体数据与日志]&#10;- 用户 / 客户端 / 角色权限&#10;- 授权码 / 令牌记录&#10;- 登录会话持久化&#10;- 审计日志历史 (audit_events)&#10;- 密钥元数据" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone-data">
+                    <mxGeometry x="50" y="100" width="260" height="280" as="geometry"/>
+                </mxCell>
+                <mxCell id="db-redis" value="Redis 热状态引擎&#10;[缓存与消息总线]&#10;- 位掩码会话状态 (BITFIELD)&#10;- Lua 乐观锁逻辑&#10;- 审计原始消息流 (XADD)&#10;- 防重放 / CSRF 锁&#10;- 速率限制计数器" style="shape=datastore;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="zone-data">
+                    <mxGeometry x="50" y="500" width="260" height="280" as="geometry"/>
+                </mxCell>
+
+                <!-- EXTERNAL INTEGRATIONS -->
+                <mxCell id="ext-op" value="外部 OIDC 提供商&#10;[上游联邦认证]" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+                    <mxGeometry x="840" y="-80" width="200" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext-vault" value="KMS / Vault&#10;[硬件安全模块 HSM]" style="shape=process;whiteSpace=wrap;html=1;backgroundOutline=1;fillColor=#f5f5f5;" vertex="1" parent="1">
+                    <mxGeometry x="1860" y="200" width="220" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext-notify" value="通知网关&#10;[短信 / 邮件发送]" style="shape=process;whiteSpace=wrap;html=1;backgroundOutline=1;fillColor=#dae8fc;" vertex="1" parent="1">
+                    <mxGeometry x="1860" y="400" width="220" height="80" as="geometry"/>
+                </mxCell>
+
+                <!-- TRAFFIC FLOW EDGES -->
+                <mxCell id="edge-boot-app" value="对象装配" style="endArrow=classic;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="boot-wire" target="zone-app">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-lb-to-app" value="HTTP (双向 TLS)" style="endArrow=classic;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.4;entryDx=0;entryDy=0;" edge="1" parent="1" source="edge-lb" target="layer-http">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-app-mysql" value="SQL 仓储访问" style="endArrow=classic;startArrow=classic;html=1;exitX=1;exitY=0.2;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" edge="1" parent="1" target="db-mysql">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1420" y="200" as="sourcePoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-app-redis" value="CAS 乐观锁 / 审计流" style="endArrow=classic;startArrow=classic;html=1;exitX=1;exitY=0.45;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;" edge="1" parent="1" target="db-redis">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1420" y="600" as="sourcePoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-audit-write" value="批量持久化" style="endArrow=classic;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.25;entryY=0.95;entryDx=0;entryDy=0;" edge="1" parent="1" source="worker-audit" target="db-mysql">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1525" y="1140"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-jwks-res" value="拉取 JWKS 公钥" style="endArrow=classic;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.65;entryDx=0;entryDy=0;" edge="1" parent="1" source="resource-server" target="layer-http">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="140" y="665"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
