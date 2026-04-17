@@ -20,6 +20,7 @@ Atomically writes the browser session hash and the reverse user-to-session index
 
 - `KEYS[1]`: session hash key
 - `KEYS[2]`: user session set key
+- `KEYS[3]`: session state key (packed `u32 state + u32 version`)
 - `ARGV[1]`: session id
 - `ARGV[2]`: user id
 - `ARGV[3]`: subject
@@ -31,6 +32,8 @@ Atomically writes the browser session hash and the reverse user-to-session index
 - `ARGV[9]`: expires at
 - `ARGV[10]`: status
 - `ARGV[11]`: ttl seconds
+- `ARGV[12]`: state mask (u32)
+- `ARGV[13]`: state version (u32)
 
 ### `delete_session.lua`
 
@@ -38,9 +41,10 @@ Atomically deletes the session hash and removes the session id from the user rev
 
 - `KEYS[1]`: session hash key
 - `KEYS[2]`: user session set key
+- `KEYS[3]`: session state key
 - `ARGV[1]`: session id
 
-Returns `{deleted_session_count, removed_index_count}`.
+Returns `{deleted_session_count, removed_index_count, deleted_state_count}`.
 
 ### `consume_authorization_code.lua`
 
@@ -76,6 +80,23 @@ Reserves a nonce exactly once using `SET NX EX`.
 - `ARGV[2]`: ttl seconds
 
 Returns `1` when reserved and `0` when it already exists.
+
+### `save_mfa_challenge.lua`
+
+Creates or updates an MFA challenge hash with bitmask state and optimistic CAS.
+
+- `KEYS[1]`: mfa challenge hash key
+- `KEYS[2]`: mfa challenge state key (packed `u32 state + u32 version`)
+- `ARGV[1]`~`ARGV[15]`: challenge payload fields
+- `ARGV[16]`: ttl seconds
+- `ARGV[17]`: next state mask (u32)
+- `ARGV[18]`: expected version (u32), `-1` means no CAS
+
+Returns:
+
+- `{1, next_ver}` on success
+- `{-2, cur_ver}` on version conflict
+- `{-3, cur_ver}` on invalid transition
 
 ### `increment_with_ttl.lua`
 

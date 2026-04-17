@@ -536,17 +536,29 @@ func resolveConfigSearchPaths(paths []string) []string {
 		return nil
 	}
 	result := make([]string, 0, len(paths))
+	homeDir := resolveHomeDir()
 	for _, path := range paths {
 		path = strings.TrimSpace(path)
 		if path == "" {
 			continue
 		}
 		if strings.HasPrefix(path, "~") {
-			if home, err := os.UserHomeDir(); err == nil {
-				path = filepath.Join(home, strings.TrimPrefix(path, "~"))
+			if homeDir != "" {
+				path = filepath.Join(homeDir, strings.TrimPrefix(path, "~"))
 			}
 		}
 		result = append(result, path)
 	}
 	return result
+}
+
+func resolveHomeDir() string {
+	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
+		return home
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(home)
 }

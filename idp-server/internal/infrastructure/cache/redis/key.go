@@ -18,6 +18,10 @@ func (k *KeyBuilder) Session(sessionID string) string {
 	return fmt.Sprintf("%s:%s:session:sid:%s", k.Prefix, k.Env, sessionID)
 }
 
+func (k *KeyBuilder) SessionState(sessionID string) string {
+	return fmt.Sprintf("%s:%s:session:state:%s", k.Prefix, k.Env, sessionID)
+}
+
 func (k *KeyBuilder) UserSessionIndex(userID string) string {
 	return fmt.Sprintf("%s:%s:session:user:%s", k.Prefix, k.Env, userID)
 }
@@ -96,6 +100,10 @@ func (k *KeyBuilder) TOTPEnrollment(sessionID string) string {
 
 func (k *KeyBuilder) MFAChallenge(challengeID string) string {
 	return fmt.Sprintf("%s:%s:mfa:challenge:%s", k.Prefix, k.Env, challengeID)
+}
+
+func (k *KeyBuilder) MFAChallengeState(challengeID string) string {
+	return fmt.Sprintf("%s:%s:mfa:challenge:state:%s", k.Prefix, k.Env, challengeID)
 }
 
 func (k *KeyBuilder) TOTPStepUsed(userID, purpose string, step int64) string {
