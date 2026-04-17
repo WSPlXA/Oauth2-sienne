@@ -23,7 +23,7 @@ services:
     ports:
       - "${IDP_MYSQL_PUBLISH:-127.0.0.1:13306}:3306"
     healthcheck:
-      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 -uroot --silent"]
+      test: [ "CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 -uroot --silent" ]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -32,7 +32,7 @@ services:
   db-replica:
     image: mysql:8.4
     restart: unless-stopped
-    profiles: ["replication"]
+    profiles: [ "replication" ]
     command:
       - "mysqld"
       - "--server-id=2"
@@ -52,7 +52,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 -uroot --silent"]
+      test: [ "CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 -uroot --silent" ]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -61,7 +61,7 @@ services:
   db-replica-init:
     image: mysql:8.4
     restart: "no"
-    profiles: ["replication"]
+    profiles: [ "replication" ]
     environment:
       MYSQL_ROOT_PASSWORD: ${IDP_MYSQL_ROOT_PASSWORD:-ChangeThisRootPassword_32CharsMin}
       MYSQL_DATABASE: ${IDP_MYSQL_DATABASE:-app}
@@ -133,20 +133,20 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command: [ "redis-server", "--appendonly", "yes" ]
     volumes:
       - idp-redis-data:/data
     ports:
       - "${IDP_REDIS_PUBLISH:-127.0.0.1:16379}:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 20
       start_period: 5s
 
   server:
-    image: ${IDP_SERVER_IMAGE:-ghcr.io/wsplxa/sienne-idp-server:latest}
+    image: ${IDP_SERVER_IMAGE:-ghcr.io/benjaminsgz/sienne-idp-server:latest}
     restart: unless-stopped
     environment:
       MYSQL_DSN: ${IDP_MYSQL_DSN:-}
@@ -197,7 +197,7 @@ services:
         condition: service_completed_successfully
         required: false
     healthcheck:
-      test: ["CMD", "sh", "-c", "kill -0 1"]
+      test: [ "CMD", "sh", "-c", "kill -0 1" ]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -214,7 +214,7 @@ services:
     volumes:
       - ./idp-server/deploy/nginx/idp.conf:/etc/nginx/conf.d/default.conf:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz >/dev/null 2>&1 || exit 1"]
+      test: [ "CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz >/dev/null 2>&1 || exit 1" ]
       interval: 15s
       timeout: 5s
       retries: 20
