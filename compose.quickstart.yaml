@@ -40,8 +40,6 @@ services:
       - "--binlog-format=ROW"
       - "--gtid-mode=ON"
       - "--enforce-gtid-consistency=ON"
-      - "--read-only=ON"
-      - "--super-read-only=ON"
     environment:
       MYSQL_ROOT_PASSWORD: ${IDP_MYSQL_ROOT_PASSWORD:-ChangeThisRootPassword_32CharsMin}
       MYSQL_ROOT_HOST: "${IDP_MYSQL_ROOT_HOST:-%}"
@@ -97,6 +95,10 @@ services:
           SOURCE_AUTO_POSITION=1,
           GET_SOURCE_PUBLIC_KEY=1;
         START REPLICA;
+        SET GLOBAL read_only = ON;
+        SET GLOBAL super_read_only = ON;
+        SET PERSIST read_only = ON;
+        SET PERSIST super_read_only = ON;
         EOSQL
 
         i=0
