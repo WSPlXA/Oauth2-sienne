@@ -19,7 +19,6 @@ func initializeApp(ctx context.Context, cfg *config) (*App, error) {
 		return nil, err
 	}
 	clientRepository := provideClientRepository(bootstrapMysqlDatabases)
-	shortURLRepository := provideShortURLRepository(bootstrapMysqlDatabases)
 	sessionRepository := provideSessionRepository(cfg, bootstrapMysqlDatabases)
 	authorizationCodeRepository := provideAuthorizationCodeRepository(bootstrapMysqlDatabases)
 	consentRepository := provideConsentRepository(bootstrapMysqlDatabases)
@@ -64,7 +63,6 @@ func initializeApp(ctx context.Context, cfg *config) (*App, error) {
 	sessionManager := provideSessionManager(sessionRepository, sessionCacheRepository, tokenRepository, tokenCacheRepository)
 	operatorRoleRepository := provideOperatorRoleRepository(bootstrapMysqlDatabases)
 	rbacManager := provideRBACManager(operatorRoleRepository, userRepository)
-	shortURLManager := provideShortURLManager(shortURLRepository)
 	jwkKeyRepository := provideJWKRepository(bootstrapMysqlDatabases)
 	rotationConfig := provideRotationConfig(cfg)
 	keyManager, err := provideKeyManager(ctx, cfg, jwkKeyRepository, rotationConfig)
@@ -72,6 +70,8 @@ func initializeApp(ctx context.Context, cfg *config) (*App, error) {
 		return nil, err
 	}
 	keysManager := provideKeysManager(jwkKeyRepository, keyManager, rotationConfig)
+	shortURLRepository := provideShortURLRepository(bootstrapMysqlDatabases)
+	shorturlManager := provideShortURLManager(shortURLRepository)
 	auditEventRepository := provideAuditStore(bootstrapMysqlDatabases)
 	repositoryAuditEventRepository, err := provideAuditEventRepository(client, cfg, keyBuilder, auditEventRepository)
 	if err != nil {
@@ -90,7 +90,7 @@ func initializeApp(ctx context.Context, cfg *config) (*App, error) {
 	oidcService := provideOIDCService(cfg, userRepository, repositoryTokenRepository, tokenCacheRepository, jwtService, keyManager)
 	authMiddleware := provideAuthMiddleware(cfg, tokenCacheRepository, jwtService)
 	sessionPermissionMiddleware := provideAdminMiddleware(sessionRepository, sessionCacheRepository, userRepository)
-	handler := provideRouter(cfg, service, manager, registrar, passwordResetter, accountUnlocker, userRepository, creator, clientRegistrar, postLogoutRegistrar, logoutRedirectValidator, authenticator, oidcProvider, sessionManager, rbacManager, keysManager, shortURLManager, repositoryAuditEventRepository, clientauthAuthenticator, grantRegistry, deviceService, mfaManager, passkeyManager, oidcService, authMiddleware, sessionPermissionMiddleware)
+	handler := provideRouter(cfg, service, manager, registrar, passwordResetter, accountUnlocker, userRepository, creator, clientRegistrar, postLogoutRegistrar, logoutRedirectValidator, authenticator, oidcProvider, sessionManager, rbacManager, keysManager, shorturlManager, repositoryAuditEventRepository, clientauthAuthenticator, grantRegistry, deviceService, mfaManager, passkeyManager, oidcService, authMiddleware, sessionPermissionMiddleware)
 	app := provideApp(handler)
 	return app, nil
 }
