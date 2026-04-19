@@ -21,6 +21,7 @@ import (
 	apprbac "idp-server/internal/application/rbac"
 	appregister "idp-server/internal/application/register"
 	appsession "idp-server/internal/application/session"
+	appshorturl "idp-server/internal/application/shorturl"
 	apptoken "idp-server/internal/application/token"
 	"idp-server/internal/infrastructure/auditstream"
 	cacheRedis "idp-server/internal/infrastructure/cache/redis"
@@ -133,6 +134,10 @@ func provideSessionRepository(cfg *config, databases *mysqlDatabases) repository
 
 func provideClientRepository(databases *mysqlDatabases) repository.ClientRepository {
 	return persistence.NewClientRepositoryRW(databases.write, databases.read)
+}
+
+func provideShortURLRepository(databases *mysqlDatabases) repository.ShortURLRepository {
+	return persistence.NewShortURLRepositoryRW(databases.write, databases.read)
 }
 
 func provideAuthorizationCodeRepository(databases *mysqlDatabases) repository.AuthorizationCodeRepository {
@@ -339,6 +344,10 @@ func provideRBACManager(
 	return apprbac.NewService(operatorRoleRepo, userRepo)
 }
 
+func provideShortURLManager(shortURLRepo repository.ShortURLRepository) appshorturl.Manager {
+	return appshorturl.NewService(shortURLRepo)
+}
+
 func provideMFAService(
 	cfg *config,
 	sessionRepo repository.SessionRepository,
@@ -524,6 +533,7 @@ func provideRouter(
 	sessionService appsession.Manager,
 	rbacService apprbac.Manager,
 	keysService appkeys.Manager,
+	shortURLService appshorturl.Manager,
 	auditRepo repository.AuditEventRepository,
 	clientAuthenticator appclientauth.Authenticator,
 	grantRegistry *pluginregistry.GrantRegistry,
@@ -551,6 +561,7 @@ func provideRouter(
 		sessionService,
 		rbacService,
 		keysService,
+		shortURLService,
 		auditRepo,
 		clientAuthenticator,
 		grantRegistry,
