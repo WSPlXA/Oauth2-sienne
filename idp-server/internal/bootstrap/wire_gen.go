@@ -70,6 +70,8 @@ func initializeApp(ctx context.Context, cfg *config) (*App, error) {
 		return nil, err
 	}
 	keysManager := provideKeysManager(jwkKeyRepository, keyManager, rotationConfig)
+	shortURLRepository := provideShortURLRepository(bootstrapMysqlDatabases)
+	shorturlManager := provideShortURLManager(shortURLRepository)
 	auditEventRepository := provideAuditStore(bootstrapMysqlDatabases)
 	repositoryAuditEventRepository, err := provideAuditEventRepository(client, cfg, keyBuilder, auditEventRepository)
 	if err != nil {
@@ -88,7 +90,7 @@ func initializeApp(ctx context.Context, cfg *config) (*App, error) {
 	oidcService := provideOIDCService(cfg, userRepository, repositoryTokenRepository, tokenCacheRepository, jwtService, keyManager)
 	authMiddleware := provideAuthMiddleware(cfg, tokenCacheRepository, jwtService)
 	sessionPermissionMiddleware := provideAdminMiddleware(sessionRepository, sessionCacheRepository, userRepository)
-	handler := provideRouter(cfg, service, manager, registrar, passwordResetter, accountUnlocker, userRepository, creator, clientRegistrar, postLogoutRegistrar, logoutRedirectValidator, authenticator, oidcProvider, sessionManager, rbacManager, keysManager, repositoryAuditEventRepository, clientauthAuthenticator, grantRegistry, deviceService, mfaManager, passkeyManager, oidcService, authMiddleware, sessionPermissionMiddleware)
+	handler := provideRouter(cfg, service, manager, registrar, passwordResetter, accountUnlocker, userRepository, creator, clientRegistrar, postLogoutRegistrar, logoutRedirectValidator, authenticator, oidcProvider, sessionManager, rbacManager, keysManager, shorturlManager, repositoryAuditEventRepository, clientauthAuthenticator, grantRegistry, deviceService, mfaManager, passkeyManager, oidcService, authMiddleware, sessionPermissionMiddleware)
 	app := provideApp(handler)
 	return app, nil
 }
