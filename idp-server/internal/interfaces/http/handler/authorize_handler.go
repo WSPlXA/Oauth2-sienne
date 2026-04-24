@@ -2,7 +2,6 @@ package handler
 
 import (
 	"errors"
-	"idp-server/internal/application/authz"
 	appauthz "idp-server/internal/application/authz"
 	"idp-server/internal/interfaces/http/dto"
 	pkgoauth2 "idp-server/pkg/oauth2"
@@ -11,10 +10,10 @@ import (
 )
 
 type AuthorizationHandler struct {
-	authzService authz.Service
+	authzService appauthz.Service
 }
 
-func NewAuthorizationHandler(authzService authz.Service) *AuthorizationHandler {
+func NewAuthorizationHandler(authzService appauthz.Service) *AuthorizationHandler {
 	return &AuthorizationHandler{
 		authzService: authzService,
 	}

@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -111,8 +110,4 @@ func extractBearerToken(authorizationHeader string) string {
 func sha256Hex(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
-}
-
-type tokenRevocationChecker interface {
-	IsAccessTokenRevoked(ctx context.Context, tokenSHA256 string) (bool, error)
 }

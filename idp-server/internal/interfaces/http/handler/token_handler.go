@@ -66,7 +66,7 @@ func (h *TokenHandler) Handle(c *gin.Context) {
 		// token endpoint 上 client 认证失败通常要按 invalid_client 语义返回，
 		// 只有真正的内部故障才升级成 server_error。
 		log.Printf("client authentication failed grant_type=%s client_id=%s err=%v", req.GrantType, req.ClientID, err)
-		status := http.StatusBadRequest
+		var status int
 		oauthErr := pkgoauth2.Error{
 			Code:        "invalid_client",
 			Description: err.Error(),
@@ -115,7 +115,7 @@ func (h *TokenHandler) Handle(c *gin.Context) {
 	if err != nil {
 		// 这里把应用层错误转换为 OAuth2 标准错误码，客户端才能按规范重试或报错。
 		log.Printf("token exchange failed grant_type=%s client_id=%s err=%v", req.GrantType, clientID, err)
-		status := http.StatusBadRequest
+		var status int
 		oauthErr := pkgoauth2.Error{
 			Code:        "invalid_grant",
 			Description: err.Error(),
@@ -126,16 +126,21 @@ func (h *TokenHandler) Handle(c *gin.Context) {
 			status = http.StatusUnauthorized
 			oauthErr.Code = "invalid_client"
 		case errors.Is(err, apptoken.ErrInvalidScope):
+			status = http.StatusBadRequest
 			oauthErr.Code = "invalid_scope"
 		case errors.Is(err, apptoken.ErrUnsupportedGrantType):
+			status = http.StatusBadRequest
 			oauthErr.Code = "unsupported_grant_type"
 		case errors.Is(err, apptoken.ErrAuthorizationPending):
+			status = http.StatusBadRequest
 			oauthErr.Code = "authorization_pending"
 			oauthErr.Description = err.Error()
 		case errors.Is(err, apptoken.ErrSlowDown):
+			status = http.StatusBadRequest
 			oauthErr.Code = "slow_down"
 			oauthErr.Description = err.Error()
 		case errors.Is(err, apptoken.ErrAccessDenied):
+			status = http.StatusBadRequest
 			oauthErr.Code = "access_denied"
 			oauthErr.Description = err.Error()
 		case errors.Is(err, apptoken.ErrInvalidCode),
@@ -144,6 +149,7 @@ func (h *TokenHandler) Handle(c *gin.Context) {
 			errors.Is(err, apptoken.ErrInvalidRefreshToken),
 			errors.Is(err, apptoken.ErrInvalidDeviceCode),
 			errors.Is(err, apptoken.ErrInvalidUserCredentials):
+			status = http.StatusBadRequest
 			oauthErr.Code = "invalid_grant"
 		default:
 			status = http.StatusInternalServerError

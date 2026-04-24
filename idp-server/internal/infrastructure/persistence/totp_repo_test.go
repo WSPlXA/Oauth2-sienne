@@ -39,7 +39,7 @@ func TestTOTPRepositoryEncryptDecryptSecret(t *testing.T) {
 
 func TestTOTPRepositoryFindSupportsLegacyPlaintextRow(t *testing.T) {
 	db := mustNewSQLiteTOTPDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	now := time.Date(2026, 4, 6, 10, 0, 0, 0, time.UTC)
 	if _, err := db.Exec(

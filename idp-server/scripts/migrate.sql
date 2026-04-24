@@ -14,6 +14,8 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- =========================================================
 DROP TABLE IF EXISTS audit_events;
 
+DROP TABLE IF EXISTS short_urls;
+
 DROP TABLE IF EXISTS jwk_keys;
 
 DROP TABLE IF EXISTS oauth_refresh_tokens;
@@ -127,6 +129,23 @@ CREATE TABLE user_webauthn_credentials (
     KEY idx_user_webauthn_credentials_user_id (user_id),
     CONSTRAINT fk_user_webauthn_credentials_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'user webauthn passkey credentials';
+
+-- =========================================================
+-- 2.1.2 Short URLs
+-- =========================================================
+CREATE TABLE short_urls (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    code VARCHAR(32) NOT NULL,
+    target_url VARCHAR(2048) NOT NULL,
+    click_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    expires_at DATETIME NULL,
+    last_access_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_short_urls_code (code),
+    KEY idx_short_urls_expires_at (expires_at)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'short url redirects';
 
 -- =========================================================
 -- 2.2 Operator roles / RBAC presets
@@ -375,6 +394,7 @@ CREATE TABLE jwk_keys (
 -- =========================================================
 CREATE TABLE audit_events (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    event_id VARCHAR(64) NOT NULL,
     event_type VARCHAR(128) NOT NULL,
     client_id BIGINT UNSIGNED NULL,
     user_id BIGINT UNSIGNED NULL,
@@ -385,6 +405,7 @@ CREATE TABLE audit_events (
     metadata_json JSON NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
+    UNIQUE KEY uk_audit_events_event_id (event_id),
     KEY idx_audit_events_event_type (event_type),
     KEY idx_audit_events_client_id (client_id),
     KEY idx_audit_events_user_id (user_id),
@@ -1069,6 +1090,7 @@ WHERE
 -- Sample audit events
 INSERT INTO
     audit_events (
+        event_id,
         event_type,
         client_id,
         user_id,
@@ -1078,7 +1100,7 @@ INSERT INTO
         user_agent,
         metadata_json
     )
-SELECT 'user.login.success', NULL, u.id, u.user_uuid, s.id, '127.0.0.1', 'seed-script', JSON_OBJECT('method', 'password')
+SELECT 'seed-audit-login-success-1', 'user.login.success', NULL, u.id, u.user_uuid, s.id, '127.0.0.1', 'seed-script', JSON_OBJECT('method', 'password')
 FROM users u
     JOIN login_sessions s ON s.session_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 WHERE
@@ -1086,6 +1108,7 @@ WHERE
 
 INSERT INTO
     audit_events (
+        event_id,
         event_type,
         client_id,
         user_id,
@@ -1095,7 +1118,7 @@ INSERT INTO
         user_agent,
         metadata_json
     )
-SELECT 'oauth.token.issued', c.id, u.id, u.user_uuid, s.id, '127.0.0.1', 'seed-script', JSON_OBJECT(
+SELECT 'seed-audit-oauth-token-issued-1', 'oauth.token.issued', c.id, u.id, u.user_uuid, s.id, '127.0.0.1', 'seed-script', JSON_OBJECT(
         'grant_type', 'authorization_code', 'scopes', JSON_ARRAY('openid', 'profile', 'email')
     )
 FROM

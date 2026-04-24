@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	cacheport "idp-server/internal/ports/cache"
@@ -33,6 +34,11 @@ func NewSessionCacheRepository(rdb *goredis.Client, key *KeyBuilder) *SessionCac
 func (r *SessionCacheRepository) Save(ctx context.Context, entry cacheport.SessionCacheEntry, ttl time.Duration) error {
 	// Save 把 session 正文和用户索引一起写入 Redis，
 	// 这样既能按 sessionID 取会话，也能在“全端登出”时按用户枚举会话。
+	stateMask := cacheport.NormalizeSessionStateMask(entry.StateMask, entry.Status)
+	stateVersion := entry.StateVersion
+	if stateVersion == 0 {
+		stateVersion = 1
+	}
 	_, err := runScript(
 		ctx,
 		r.scripts.saveSession,
@@ -40,6 +46,7 @@ func (r *SessionCacheRepository) Save(ctx context.Context, entry cacheport.Sessi
 		[]string{
 			r.key.Session(entry.SessionID),
 			r.key.UserSessionIndex(entry.UserID),
+			r.key.SessionState(entry.SessionID),
 		},
 		entry.SessionID,
 		entry.UserID,
@@ -50,38 +57,69 @@ func (r *SessionCacheRepository) Save(ctx context.Context, entry cacheport.Sessi
 		entry.UserAgent,
 		formatTime(entry.AuthenticatedAt),
 		formatTime(entry.ExpiresAt),
-		entry.Status,
+		cacheport.SessionStatusFromMask(stateMask, entry.Status),
 		durationSeconds(ttl),
+		strconv.FormatUint(uint64(stateMask), 10),
+		strconv.FormatUint(uint64(stateVersion), 10),
 	).Result()
 	return err
 }
 
 func (r *SessionCacheRepository) Get(ctx context.Context, sessionID string) (*cacheport.SessionCacheEntry, error) {
-	// 缓存里的时间统一用 RFC3339 字符串保存，便于 Lua/Go 双端稳定读写。
-	key := r.key.Session(sessionID)
+	// 热路径改为固定字段 HMGET，避免 HGETALL map 分配和哈希遍历。
+	sessionKey := r.key.Session(sessionID)
+	stateKey := r.key.SessionState(sessionID)
 
-	res, err := r.rdb.HGetAll(ctx, key).Result()
+	pipe := r.rdb.Pipeline()
+	valuesCmd := pipe.HMGet(
+		ctx,
+		sessionKey,
+		"user_id",
+		"subject",
+		"acr",
+		"amr_json",
+		"ip",
+		"user_agent",
+		"authenticated_at",
+		"expires_at",
+		"status",
+	)
+	stateCmd := pipe.BitField(ctx, stateKey, "GET", "u32", "0", "GET", "u32", "32")
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, err
+	}
+	values, err := valuesCmd.Result()
 	if err != nil {
 		return nil, err
 	}
-	if len(res) == 0 {
+	stateValues, err := stateCmd.Result()
+	if err != nil {
+		return nil, err
+	}
+	if len(values) == 0 || values[0] == nil {
 		return nil, nil
 	}
 
-	authenticatedAt, _ := time.Parse(time.RFC3339, res["authenticated_at"])
-	expiresAt, _ := time.Parse(time.RFC3339, res["expires_at"])
+	authenticatedAt := parseTime(readRedisString(values[6]))
+	expiresAt := parseTime(readRedisString(values[7]))
+	status := readRedisString(values[8])
+	stateMask, stateVersion := decodePackedState(stateValues)
+	stateMask = cacheport.NormalizeSessionStateMask(stateMask, status)
+	status = cacheport.SessionStatusFromMask(stateMask, status)
 
 	return &cacheport.SessionCacheEntry{
 		SessionID:       sessionID,
-		UserID:          res["user_id"],
-		Subject:         res["subject"],
-		ACR:             res["acr"],
-		AMRJSON:         res["amr_json"],
-		IPAddress:       res["ip"],
-		UserAgent:       res["user_agent"],
+		UserID:          readRedisString(values[0]),
+		Subject:         readRedisString(values[1]),
+		ACR:             readRedisString(values[2]),
+		AMRJSON:         readRedisString(values[3]),
+		IPAddress:       readRedisString(values[4]),
+		UserAgent:       readRedisString(values[5]),
 		AuthenticatedAt: authenticatedAt.UTC(),
 		ExpiresAt:       expiresAt.UTC(),
-		Status:          res["status"],
+		Status:          status,
+		StateMask:       stateMask,
+		StateVersion:    stateVersion,
 	}, nil
 }
 
@@ -103,6 +141,7 @@ func (r *SessionCacheRepository) Delete(ctx context.Context, sessionID string) e
 		[]string{
 			r.key.Session(sessionID),
 			r.key.UserSessionIndex(entry.UserID),
+			r.key.SessionState(sessionID),
 		},
 		sessionID,
 	).Result()
@@ -128,4 +167,28 @@ func (r *SessionCacheRepository) ListUserSessionIDs(ctx context.Context, userID 
 func (r *SessionCacheRepository) RemoveUserSessionIndex(ctx context.Context, userID string, sessionID string) error {
 	// 索引移除是幂等的，session 已不在集合中时也不会报错。
 	return r.rdb.SRem(ctx, r.key.UserSessionIndex(userID), sessionID).Err()
+}
+
+func readRedisString(value any) string {
+	if value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case []byte:
+		return string(typed)
+	default:
+		return ""
+	}
+}
+
+func decodePackedState(values []int64) (mask uint32, version uint32) {
+	if len(values) > 0 && values[0] > 0 {
+		mask = uint32(values[0])
+	}
+	if len(values) > 1 && values[1] > 0 {
+		version = uint32(values[1])
+	}
+	return mask, version
 }

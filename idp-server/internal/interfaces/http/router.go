@@ -18,6 +18,7 @@ import (
 	apprbac "idp-server/internal/application/rbac"
 	appregister "idp-server/internal/application/register"
 	appsession "idp-server/internal/application/session"
+	appshorturl "idp-server/internal/application/shorturl"
 	"idp-server/internal/ports/repository"
 
 	"idp-server/internal/application/authz"
@@ -28,7 +29,7 @@ import (
 	"idp-server/resource"
 )
 
-func NewRouter(authzService authz.Service, consentService appconsent.Manager, registerService appregister.Registrar, passwordResetter appregister.PasswordResetter, accountUnlocker appregister.AccountUnlocker, userRepo repository.UserRepository, clientCreator appclient.Creator, clientRedirectRegistrar appclient.Registrar, clientPostLogoutRedirectRegistrar appclient.PostLogoutRegistrar, logoutRedirectValidator appclient.LogoutRedirectValidator, authnService authn.Authenticator, federatedOIDCEnabled bool, sessionService appsession.Manager, rbacService apprbac.Manager, keysService appkeys.Manager, auditRepo repository.AuditEventRepository, clientAuthenticator appclientauth.Authenticator, grantRegistry *pluginregistry.GrantRegistry, deviceService *appdevice.Service, mfaService appmfa.Manager, passkeyService apppasskey.Manager, oidcService *oidc.Service, authMiddleware *middleware.AuthMiddleware, adminMiddleware *middleware.SessionPermissionMiddleware) *gin.Engine {
+func NewRouter(authzService authz.Service, consentService appconsent.Manager, registerService appregister.Registrar, passwordResetter appregister.PasswordResetter, accountUnlocker appregister.AccountUnlocker, userRepo repository.UserRepository, clientCreator appclient.Creator, clientRedirectRegistrar appclient.Registrar, clientPostLogoutRedirectRegistrar appclient.PostLogoutRegistrar, logoutRedirectValidator appclient.LogoutRedirectValidator, authnService authn.Authenticator, federatedOIDCEnabled bool, federatedOIDCProviderName string, sessionService appsession.Manager, rbacService apprbac.Manager, keysService appkeys.Manager, shortURLService appshorturl.Manager, auditRepo repository.AuditEventRepository, clientAuthenticator appclientauth.Authenticator, grantRegistry *pluginregistry.GrantRegistry, deviceService *appdevice.Service, mfaService appmfa.Manager, passkeyService apppasskey.Manager, oidcService *oidc.Service, authMiddleware *middleware.AuthMiddleware, adminMiddleware *middleware.SessionPermissionMiddleware) *gin.Engine {
 	// Router 是系统所有 HTTP 能力的装配入口。
 	// 这里不写业务逻辑，而是把 handler、中间件和 URL 空间组织起来，
 	// 让“协议层职责”和“应用层职责”保持清晰分离。
@@ -62,7 +63,7 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 	registerHandler := handler.NewRegisterHandler(registerService)
 	clientRedirectURIHandler := handler.NewClientRedirectURIHandler(clientRedirectRegistrar)
 	clientPostLogoutRedirectURIHandler := handler.NewClientPostLogoutRedirectURIHandler(clientPostLogoutRedirectRegistrar)
-	loginHandler := handler.NewLoginHandler(authnService, federatedOIDCEnabled, auditRepo)
+	loginHandler := handler.NewLoginHandler(authnService, federatedOIDCEnabled, auditRepo).WithFederatedOIDCProviderName(federatedOIDCProviderName)
 	loginTOTPHandler := handler.NewLoginTOTPHandler(authnService, auditRepo)
 	loginPushHandler := handler.NewLoginPushHandler(authnService)
 	logoutHandler := handler.NewLogoutHandler(sessionService)
@@ -83,6 +84,7 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 		auditRepo,
 	)
 	rbacHandler := handler.NewRBACHandler(rbacService, auditRepo)
+	shortURLHandler := handler.NewShortURLHandler(shortURLService)
 	portalHandler := handler.NewPortalHandler()
 	totpSetupHandler := handler.NewTOTPSetupHandler(mfaService)
 	passkeySetupHandler := handler.NewPasskeySetupHandler(passkeyService)
@@ -99,6 +101,7 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	router.GET("/", portalHandler.Home)
+	router.GET("/s/:code", shortURLHandler.Redirect)
 	router.GET("/.well-known/openid-configuration", oidcMetadataHandler.Discovery)
 	router.GET("/login", loginHandler.Handle)
 	router.POST("/login", loginHandler.Handle)
@@ -174,6 +177,7 @@ func NewRouter(authzService authz.Service, consentService appconsent.Manager, re
 		admin.DELETE("/rbac/roles/:role_code", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsManage), rbacHandler.DeleteRole)
 		admin.POST("/users/:user_id/role", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.UserManage), rbacHandler.AssignRole)
 		admin.POST("/users/:user_id/logout-all", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.UserManage), adminUserLogoutHandler.Handle)
+		admin.POST("/short-urls", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsManage), shortURLHandler.Create)
 		admin.POST("/actions/rbac/bootstrap", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsManage), adminActionHandler.BootstrapRoles)
 		admin.POST("/actions/rbac/roles/create", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsManage), adminActionHandler.CreateRole)
 		admin.POST("/actions/rbac/roles/update", adminMiddleware.RequireSessionPermissions(rbac.AuthExec, rbac.OpsManage), adminActionHandler.UpdateRole)

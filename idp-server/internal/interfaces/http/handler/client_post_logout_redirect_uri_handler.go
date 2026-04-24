@@ -35,7 +35,7 @@ func (h *ClientPostLogoutRedirectURIHandler) Handle(c *gin.Context) {
 		RedirectURIs: redirectURIs,
 	})
 	if err != nil {
-		status := http.StatusBadRequest
+		var status int
 		switch {
 		case errors.Is(err, appclient.ErrClientNotFound):
 			status = http.StatusNotFound
