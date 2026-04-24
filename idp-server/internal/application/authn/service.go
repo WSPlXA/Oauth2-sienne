@@ -234,7 +234,7 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 		if credential != nil || passkeyAvailable {
 			// 这里不直接创建 session，而是先生成一个短期 MFA challenge，
 			// 把登录上下文（用户、来源 IP、重定向目标）暂存在缓存中等待二次验证。
-			challengeID, err := s.createMFAChallenge(ctx, user, input)
+			challengeID, pushCode, err := s.createMFAChallenge(ctx, user, input)
 			if err != nil {
 				return nil, err
 			}
@@ -255,7 +255,7 @@ func (s *Service) Authenticate(ctx context.Context, input AuthenticateInput) (*A
 				MFAMode:          mfaMode,
 				PasskeyAvailable: passkeyAvailable,
 				PushStatus:       MFAPushStatusPending,
-				PushCode:         buildPushMatchCode(challengeID),
+				PushCode:         pushCode,
 			}, ErrMFARequired
 		}
 		if s.forceMFAEnrollment {
@@ -1005,16 +1005,19 @@ func (s *Service) updateMFAChallengeMode(ctx context.Context, challengeID, mode 
 	return nil
 }
 
-func (s *Service) createMFAChallenge(ctx context.Context, user *userdomain.Model, input AuthenticateInput) (string, error) {
+func (s *Service) createMFAChallenge(ctx context.Context, user *userdomain.Model, input AuthenticateInput) (string, string, error) {
 	if s.mfaCache == nil || user == nil {
-		return "", ErrMFARequired
+		return "", "", ErrMFARequired
 	}
 	challengeID := uuid.NewString()
-	pushCode := buildPushMatchCode(challengeID)
+	pushCode, err := buildPushMatchCode()
+	if err != nil {
+		return "", "", err
+	}
 	if s.mfaTTL <= 0 {
 		s.mfaTTL = 5 * time.Minute
 	}
-	err := s.mfaCache.SaveMFAChallenge(ctx, cache.MFAChallengeEntry{
+	err = s.mfaCache.SaveMFAChallenge(ctx, cache.MFAChallengeEntry{
 		ChallengeID: challengeID,
 		UserID:      strconv.FormatInt(user.ID, 10),
 		Subject:     user.UserUUID,
@@ -1170,21 +1173,10 @@ func ttlUntil(now, expiresAt time.Time) time.Duration {
 	return ttl
 }
 
-func buildPushMatchCode(seed string) string {
-	if strings.TrimSpace(seed) == "" {
-		return randomTwoDigits()
-	}
-	sum := 0
-	for _, ch := range seed {
-		sum += int(ch)
-	}
-	return fmt.Sprintf("%02d", sum%90+10)
-}
-
-func randomTwoDigits() string {
+func buildPushMatchCode() (string, error) {
 	var b [1]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return "42"
+		return "", fmt.Errorf("generate push match code: %w", err)
 	}
-	return fmt.Sprintf("%02d", int(b[0])%90+10)
+	return fmt.Sprintf("%02d", int(b[0])%90+10), nil
 }
