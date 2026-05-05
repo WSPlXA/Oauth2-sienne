@@ -20,14 +20,14 @@ func initializeApp(ctx context.Context, cfg *config) (*App, error) {
 	}
 	clientRepository := provideClientRepository(bootstrapMysqlDatabases)
 	sessionRepository := provideSessionRepository(cfg, bootstrapMysqlDatabases)
-	authorizationCodeRepository := provideAuthorizationCodeRepository(bootstrapMysqlDatabases)
-	consentRepository := provideConsentRepository(bootstrapMysqlDatabases)
 	client, err := provideRedis(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 	keyBuilder := provideKeyBuilder(cfg)
 	sessionCacheRepository := provideSessionCacheRepository(client, keyBuilder)
+	authorizationCodeRepository := provideAuthorizationCodeRepository(bootstrapMysqlDatabases)
+	consentRepository := provideConsentRepository(bootstrapMysqlDatabases)
 	service := provideAuthzService(clientRepository, sessionRepository, sessionCacheRepository, authorizationCodeRepository, consentRepository)
 	manager := provideConsentManager(clientRepository, sessionRepository, sessionCacheRepository, consentRepository)
 	userRepository := provideUserRepository(bootstrapMysqlDatabases)
