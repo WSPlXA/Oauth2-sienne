@@ -98,3 +98,7 @@ Before publishing:
 ## Production Note
 
 The application supports file-backed signing keys for local development, but multi-replica deployments should use KMS, Vault, or protected shared storage with clear rotation ownership. Never publish private signing keys or real environment files.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
