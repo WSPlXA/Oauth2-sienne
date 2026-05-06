@@ -1,6 +1,4 @@
-# idp-server Sequence 图
 
-基于 [detail.md](/F:/source%20code/palyground/workspace/idp-server/detail.md) 中现有流程整理。
 
 ## 1. Web Client 向 idp-server 请求
 
