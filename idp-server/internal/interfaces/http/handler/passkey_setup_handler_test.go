@@ -55,7 +55,7 @@ func TestPasskeySetupHandlerGetRendersHTML(t *testing.T) {
 		t.Fatalf("content type = %q, want text/html", got)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, "<title>Passkey Setup</title>") {
+	if !strings.Contains(body, "<title>Passkey Setup | Sienne IDP</title>") {
 		t.Fatalf("body should contain passkey setup title: %s", body)
 	}
 }

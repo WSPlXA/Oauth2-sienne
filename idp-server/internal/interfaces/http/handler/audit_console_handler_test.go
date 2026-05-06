@@ -129,7 +129,7 @@ func TestAuditConsoleHandlerRendersAuditRows(t *testing.T) {
 	if !strings.Contains(body, "rbac.role.assigned") {
 		t.Fatalf("body should contain operation event row, got: %s", body)
 	}
-	if !strings.Contains(body, "bob (id=2)") {
+	if !strings.Contains(body, `<div class="font-bold">bob</div>`) {
 		t.Fatalf("body should resolve actor username, got: %s", body)
 	}
 }

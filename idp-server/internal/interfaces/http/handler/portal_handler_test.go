@@ -95,7 +95,7 @@ func TestOAuthWorkbenchHidesRBACLinkForOAuthAdminMask(t *testing.T) {
 		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
 	}
 	body := recorder.Body.String()
-	if strings.Contains(body, ">Open RBAC Console<") {
+	if strings.Contains(body, `href="/admin"`) {
 		t.Fatalf("oauth admin workbench should not expose rbac console link, got: %s", body)
 	}
 }
@@ -123,7 +123,7 @@ func TestSupportWorkbenchShowsRBACLinkWhenPermissionMatches(t *testing.T) {
 		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, ">Open RBAC Console<") {
+	if !strings.Contains(body, `href="/admin"`) {
 		t.Fatalf("support workbench should expose rbac console link when permitted, got: %s", body)
 	}
 }

@@ -84,7 +84,7 @@ func TestLoginHandlerHandleGetHTML(t *testing.T) {
 		t.Fatalf("content type = %q, want text/html", got)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, "<title>Sign In</title>") {
+	if !strings.Contains(body, "<title>Sign In | Sienne IDP</title>") {
 		t.Fatalf("body did not contain login title: %s", body)
 	}
 	if !strings.Contains(body, `name="return_to" value="/oauth2/authorize?client_id=demo"`) {
@@ -496,7 +496,7 @@ func TestLoginHandlerHandleGetHTMLShowsFederatedOIDCButton(t *testing.T) {
 	router.ServeHTTP(recorder, req)
 
 	body := recorder.Body.String()
-	if !strings.Contains(body, "Sign in with OpenID Connect") {
+	if !strings.Contains(body, "OIDC: OpenID Connect") {
 		t.Fatalf("body did not contain federated oidc button: %s", body)
 	}
 	if !strings.Contains(body, `name="method" value="federated_oidc"`) {
@@ -517,7 +517,7 @@ func TestLoginHandlerHandleGetHTMLShowsConfiguredFederatedProviderName(t *testin
 	router.ServeHTTP(recorder, req)
 
 	body := recorder.Body.String()
-	if !strings.Contains(body, "Sign in with Google") {
+	if !strings.Contains(body, "OIDC: Google") {
 		t.Fatalf("body did not contain custom federated provider name: %s", body)
 	}
 }
